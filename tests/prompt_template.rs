@@ -12,4 +12,10 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
             && BUILTIN_PROMPT_TEMPLATE.contains("as part of this run"),
         "built-in prompt must allow merge after the review gate is satisfied"
     );
+    assert!(
+        BUILTIN_PROMPT_TEMPLATE.contains("NSC_RESULT: MERGED_SUCCESS")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_MERGED_MAIN_SHA:")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_PR:"),
+        "built-in prompt must emit exact machine-readable markers for wave-dirs mode"
+    );
 }
