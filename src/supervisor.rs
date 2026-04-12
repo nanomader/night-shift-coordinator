@@ -1,5 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::app_server::{AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome};
 use crate::batch::{discover_new_candidates_on_rescan, discover_startup_candidates};
@@ -20,8 +21,12 @@ struct RunningSlice {
     slice_file_path: PathBuf,
     worktree_path: PathBuf,
     thread_id: String,
+    started_at: Instant,
+    last_progress_log_at: Instant,
     completion: tokio::sync::oneshot::Receiver<Result<TerminalRunOutcome>>,
 }
+
+const PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 
 pub async fn run(
     options: SupervisorOptions,
@@ -72,7 +77,7 @@ pub async fn run(
         if running.is_empty() {
             break;
         }
-        let (index, result) = wait_for_one(&mut running).await?;
+        let (index, result) = wait_for_one(&mut running, output).await?;
         let finished = running.swap_remove(index);
         handle_terminal_result(&options.repo_root, &run_scope, output, finished, result)?;
 
@@ -110,18 +115,16 @@ async fn launch_available(
     output: &mut dyn OutputSink,
     pending: &mut VecDeque<SliceCandidate>,
     running: &mut Vec<RunningSlice>,
-    startup_phase: bool,
+    _startup_phase: bool,
 ) -> Result<()> {
     while running.len() < MAX_PARALLEL_SLICES {
         let Some(candidate) = pending.pop_front() else {
             break;
         };
 
-        if !startup_phase {
-            output.emit(OutputEvent::SliceStarting {
-                label: &candidate.label,
-            });
-        }
+        output.emit(OutputEvent::SliceStarting {
+            label: &candidate.label,
+        });
 
         let worktree_path = create_worktree(&options.repo_root, run_scope, &candidate.label)?;
         write_recovery(
@@ -147,6 +150,7 @@ async fn launch_available(
                 thread_id,
                 completion,
             }) => {
+                let now = Instant::now();
                 write_recovery(
                     &options.repo_root,
                     run_scope,
@@ -156,11 +160,18 @@ async fn launch_available(
                     Some(thread_id.clone()),
                     SliceStatus::Running,
                 )?;
+                output.emit(OutputEvent::SliceRunning {
+                    label: &candidate.label,
+                    thread_id: &thread_id,
+                    worktree_path: &worktree_path,
+                });
                 running.push(RunningSlice {
                     label: candidate.label,
                     slice_file_path: candidate.path,
                     worktree_path,
                     thread_id,
+                    started_at: now,
+                    last_progress_log_at: now,
                     completion,
                 });
             }
@@ -200,9 +211,19 @@ fn repo_relative_slice_path(repo_root: &Path, slice_path: &Path) -> Result<PathB
         })
 }
 
-async fn wait_for_one(running: &mut [RunningSlice]) -> Result<(usize, Result<TerminalRunOutcome>)> {
+async fn wait_for_one(
+    running: &mut [RunningSlice],
+    output: &mut dyn OutputSink,
+) -> Result<(usize, Result<TerminalRunOutcome>)> {
     loop {
         for (index, slice) in running.iter_mut().enumerate() {
+            if slice.last_progress_log_at.elapsed() >= PROGRESS_HEARTBEAT_INTERVAL {
+                output.emit(OutputEvent::SliceStillRunning {
+                    label: &slice.label,
+                    elapsed_seconds: slice.started_at.elapsed().as_secs(),
+                });
+                slice.last_progress_log_at = Instant::now();
+            }
             match slice.completion.try_recv() {
                 Ok(result) => return Ok((index, result)),
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
@@ -338,6 +359,13 @@ mod tests {
                 }
                 OutputEvent::SliceStarting { label } => format!("starting:{label}"),
                 OutputEvent::SliceFinishedNormally { label, .. } => format!("finished:{label}"),
+                OutputEvent::SliceRunning {
+                    label, thread_id, ..
+                } => format!("running:{label}:{thread_id}"),
+                OutputEvent::SliceStillRunning {
+                    label,
+                    elapsed_seconds,
+                } => format!("heartbeat:{label}:{elapsed_seconds}"),
                 OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
                 OutputEvent::NewSliceDiscovered { label } => format!("new:{label}"),
                 OutputEvent::Warning { message } => format!("warning:{message}"),

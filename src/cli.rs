@@ -13,6 +13,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Run(RunArgs),
+    Debug(RunArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
