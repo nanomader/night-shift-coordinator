@@ -12,15 +12,15 @@ use std::path::{Path, PathBuf};
 
 use app_server::CodexAppServerClient;
 use error::{NscError, Result};
-use output::TerminalOutput;
+use output::{OutputMode, TerminalOutput};
 
 pub const BUILTIN_PROMPT_TEMPLATE: &str = include_str!("../NSC_PROMPT.md");
 
-pub async fn run(args: cli::RunArgs) -> Result<()> {
+pub async fn run(args: cli::RunArgs, output_mode: OutputMode) -> Result<()> {
     let repo_root = worktree::ensure_repo_root(&std::env::current_dir()?)?;
     let slice_folder = resolve_slice_folder(&repo_root, &args.slice_folder)?;
     let prompt_template = load_prompt_template(args.prompt_template)?;
-    let mut output = TerminalOutput::default();
+    let mut output = TerminalOutput::new(output_mode);
     let client = CodexAppServerClient::default();
     let options = supervisor::SupervisorOptions {
         repo_root,
