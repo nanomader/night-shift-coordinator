@@ -1,9 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::app_server::{AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome};
-use crate::batch::{discover_new_candidates_on_rescan, discover_startup_candidates};
+use crate::batch::discover_startup_candidates;
 use crate::cli::ScheduleMode;
 use crate::error::{NscError, Result};
 use crate::output::{OutputEvent, OutputSink};
@@ -12,7 +12,8 @@ use crate::slice::{MAX_PARALLEL_SLICES, SliceCandidate, SliceStatus};
 use crate::terminal_result::{TerminalResultKind, parse_terminal_result_markers};
 use crate::wave_dirs::discover_wave_dirs;
 use crate::worktree::{
-    create_worktree, origin_main_contains_commit, prepare_default_base_ref, run_scope_now,
+    base_ref_contains_repo_relative_path, create_worktree, origin_main_contains_commit,
+    prepare_default_base_ref, run_scope_now,
 };
 
 pub struct SupervisorOptions {
@@ -66,6 +67,12 @@ struct BatchExecutionContext<'a> {
     base_ref: &'a str,
 }
 
+#[derive(Debug)]
+enum BatchRunFailure {
+    BeforeLaunch(NscError),
+    AfterLaunch(NscError),
+}
+
 pub async fn run(
     options: SupervisorOptions,
     client: &dyn AppServerClient,
@@ -94,10 +101,19 @@ pub async fn run(
             )
             .await
             .map(|_| ())
-            .inspect_err(|err| {
-                output.emit(OutputEvent::FatalStartupFailure {
-                    message: &err.to_string(),
-                });
+            .map_err(|failure| match failure {
+                BatchRunFailure::BeforeLaunch(err) => {
+                    output.emit(OutputEvent::FatalStartupFailure {
+                        message: &err.to_string(),
+                    });
+                    err
+                }
+                BatchRunFailure::AfterLaunch(err) => {
+                    output.emit(OutputEvent::RunStopped {
+                        message: &err.to_string(),
+                    });
+                    err
+                }
             })
         }
         ScheduleMode::WaveDirs => run_wave_dirs(&options, &run_scope, client, output).await,
@@ -160,7 +176,10 @@ async fn run_wave_dirs(
         .await
         {
             Ok(summary) => summary,
-            Err(err) => {
+            Err(failure) => {
+                let err = match failure {
+                    BatchRunFailure::BeforeLaunch(err) | BatchRunFailure::AfterLaunch(err) => err,
+                };
                 output.emit(OutputEvent::WaveDirStopped {
                     index: index + 1,
                     total: wave_dirs.len(),
@@ -204,12 +223,13 @@ async fn run_flat_batch(
     batch_dir: &Path,
     client: &dyn AppServerClient,
     output: &mut dyn OutputSink,
-) -> Result<BatchRunSummary> {
-    let mut known_paths = HashSet::new();
+) -> std::result::Result<BatchRunSummary, BatchRunFailure> {
     let mut pending = VecDeque::new();
-    let startup_candidates = discover_startup_candidates(batch_dir)?;
+    let startup_candidates =
+        discover_startup_candidates(batch_dir).map_err(BatchRunFailure::BeforeLaunch)?;
+    validate_candidates_against_base(&options.repo_root, base_ref, &startup_candidates)
+        .map_err(BatchRunFailure::BeforeLaunch)?;
     for candidate in startup_candidates {
-        known_paths.insert(candidate.path.clone());
         pending.push_back(queue_slice(candidate, label_scope));
     }
 
@@ -240,34 +260,21 @@ async fn run_flat_batch(
         &mut running,
         &mut completed_slices,
     )
-    .await?;
+    .await
+    .map_err(|err| map_batch_run_failure(err, &running, &completed_slices))?;
 
     while !running.is_empty() || !pending.is_empty() {
         if running.is_empty() {
             break;
         }
-        let (index, result) = wait_for_one(&mut running, output).await?;
+        let (index, result) = wait_for_one(&mut running, output)
+            .await
+            .map_err(BatchRunFailure::AfterLaunch)?;
         let finished = running.swap_remove(index);
-        completed_slices.push(handle_terminal_result(
-            &options.repo_root,
-            run_scope,
-            output,
-            finished,
-            result,
-        )?);
-
-        let rescan = discover_new_candidates_on_rescan(batch_dir, &known_paths);
-        for warning in rescan.warnings {
-            output.emit(OutputEvent::Warning { message: &warning });
-        }
-        for candidate in rescan.new_candidates {
-            known_paths.insert(candidate.path.clone());
-            let queued = queue_slice(candidate, label_scope);
-            output.emit(OutputEvent::NewSliceDiscovered {
-                label: &queued.output_label,
-            });
-            pending.push_back(queued);
-        }
+        completed_slices.push(
+            handle_terminal_result(&options.repo_root, run_scope, output, finished, result)
+                .map_err(BatchRunFailure::AfterLaunch)?,
+        );
 
         launch_available(
             &context,
@@ -277,7 +284,8 @@ async fn run_flat_batch(
             &mut running,
             &mut completed_slices,
         )
-        .await?;
+        .await
+        .map_err(|err| map_batch_run_failure(err, &running, &completed_slices))?;
     }
 
     Ok(BatchRunSummary { completed_slices })
@@ -394,6 +402,35 @@ async fn launch_available(
     }
 
     Ok(())
+}
+
+fn validate_candidates_against_base(
+    repo_root: &Path,
+    base_ref: &str,
+    candidates: &[SliceCandidate],
+) -> Result<()> {
+    for candidate in candidates {
+        let repo_relative_path = repo_relative_slice_path(repo_root, &candidate.path)?;
+        if !base_ref_contains_repo_relative_path(repo_root, base_ref, &repo_relative_path)? {
+            return Err(NscError::SliceMissingOnExecutionBase {
+                slice_path: repo_relative_path,
+                base_ref: base_ref.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn map_batch_run_failure(
+    err: NscError,
+    running: &[RunningSlice],
+    completed_slices: &[CompletedSlice],
+) -> BatchRunFailure {
+    if running.is_empty() && completed_slices.is_empty() {
+        BatchRunFailure::BeforeLaunch(err)
+    } else {
+        BatchRunFailure::AfterLaunch(err)
+    }
 }
 
 fn repo_relative_slice_path(repo_root: &Path, slice_path: &Path) -> Result<PathBuf> {
