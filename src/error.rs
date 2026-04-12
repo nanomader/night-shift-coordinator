@@ -33,6 +33,11 @@ pub enum NscError {
     },
     #[error("invalid terminal result markers: {0}")]
     InvalidTerminalResult(String),
+    #[error("slice file is missing from execution base {base_ref}: {slice_path}")]
+    SliceMissingOnExecutionBase {
+        slice_path: PathBuf,
+        base_ref: String,
+    },
     #[error("wave-dir unlock failed for {wave_dir}: {reason}")]
     WaveDirUnlockFailed { wave_dir: String, reason: String },
     #[error("prompt template is unreadable: {path}: {source}")]

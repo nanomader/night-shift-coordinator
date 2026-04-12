@@ -5,3 +5,4 @@
 - 2026-04-12: Added a separate `debug` command so verbose slice lifecycle output stays opt-in, from plan `done_docs/_done_nsc_debug_command_plan.md`.
 - 2026-04-12: Switched slice worktrees to fetched `origin/main` and tightened the built-in merge gate around the explicit Codex no-major-issues review comment from plan `done_docs/_done_nsc_origin_base_and_merge_prompt_plan.md`.
 - 2026-04-12: Added explicit `--schedule wave-dirs` execution with ordered child wave-dirs, merged-success unlock verification, and prompt result markers from plan `done_docs/_done_nsc_wave_dirs_implementation_plan.md`.
+- 2026-04-12: Hardened execution-truth validation, static batch membership, run-level stop reporting, and frozen-base worktree behavior from plan `done_docs/_done_nsc_execution_truth_hardening_plan.md`.

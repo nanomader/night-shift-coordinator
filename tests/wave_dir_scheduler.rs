@@ -53,9 +53,9 @@ impl OutputSink for RecordingOutput {
             OutputEvent::SliceRunning { label, .. } => format!("running:{label}"),
             OutputEvent::SliceStillRunning { label, .. } => format!("heartbeat:{label}"),
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
-            OutputEvent::NewSliceDiscovered { label } => format!("new:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
+            OutputEvent::RunStopped { message } => format!("run-stopped:{message}"),
         };
         self.lines.lock().unwrap().push(line);
     }
@@ -113,6 +113,20 @@ async fn wave_dirs_run_in_order_and_unlock_after_success() {
         "slice two",
     )
     .unwrap();
+    git_ok(repo.path(), ["add", "."]);
+    git_ok(
+        repo.path(),
+        [
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test User",
+            "commit",
+            "-m",
+            "add waves",
+        ],
+    );
+    git_ok(repo.path(), ["push", "origin", "main"]);
 
     let merged_sha = git_stdout(repo.path(), ["rev-parse", "origin/main"]);
     let client = FakeAppServerClient::new(vec![
@@ -178,6 +192,20 @@ async fn wave_dirs_stop_on_manual_followup_without_starting_next_wave() {
         "slice two",
     )
     .unwrap();
+    git_ok(repo.path(), ["add", "."]);
+    git_ok(
+        repo.path(),
+        [
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test User",
+            "commit",
+            "-m",
+            "add waves",
+        ],
+    );
+    git_ok(repo.path(), ["push", "origin", "main"]);
 
     let client = FakeAppServerClient::new(vec![TerminalRunOutcome::FinishedPromptOwned {
         terminal_message: "not merged\nNSC_RESULT: MANUAL_FOLLOWUP\n".to_string(),
@@ -215,6 +243,20 @@ async fn wave_dirs_allow_parallel_slices_inside_one_wave_dir() {
     fs::write(root.join("batch02_first").join("01_a.md"), "slice a").unwrap();
     fs::write(root.join("batch02_first").join("02_b.md"), "slice b").unwrap();
     fs::write(root.join("batch03_second").join("01_c.md"), "slice c").unwrap();
+    git_ok(repo.path(), ["add", "."]);
+    git_ok(
+        repo.path(),
+        [
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test User",
+            "commit",
+            "-m",
+            "add waves",
+        ],
+    );
+    git_ok(repo.path(), ["push", "origin", "main"]);
 
     let merged_sha = git_stdout(repo.path(), ["rev-parse", "origin/main"]);
     let client = FakeAppServerClient::new(vec![

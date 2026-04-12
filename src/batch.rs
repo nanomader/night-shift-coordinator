@@ -1,16 +1,9 @@
-use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NscError, Result};
 use crate::slice::SliceCandidate;
-
-#[derive(Debug, Default)]
-pub struct RescanOutcome {
-    pub new_candidates: Vec<SliceCandidate>,
-    pub warnings: Vec<String>,
-}
 
 pub fn discover_startup_candidates(slice_dir: &Path) -> Result<Vec<SliceCandidate>> {
     if !slice_dir.is_dir() {
@@ -36,64 +29,6 @@ pub fn discover_startup_candidates(slice_dir: &Path) -> Result<Vec<SliceCandidat
         return Err(NscError::NoSliceCandidates(slice_dir.to_path_buf()));
     }
     Ok(candidates)
-}
-
-pub fn discover_new_candidates_on_rescan(
-    slice_dir: &Path,
-    known_paths: &HashSet<PathBuf>,
-) -> RescanOutcome {
-    if !slice_dir.is_dir() {
-        return RescanOutcome {
-            warnings: vec![format!(
-                "slice folder is not accessible during rescan: {}",
-                slice_dir.display()
-            )],
-            ..RescanOutcome::default()
-        };
-    }
-
-    let mut outcome = RescanOutcome::default();
-    let read_dir = match fs::read_dir(slice_dir) {
-        Ok(value) => value,
-        Err(err) => {
-            outcome.warnings.push(format!(
-                "failed to rescan slice folder {}: {}",
-                slice_dir.display(),
-                err
-            ));
-            return outcome;
-        }
-    };
-
-    for entry in read_dir {
-        let entry = match entry {
-            Ok(value) => value,
-            Err(err) => {
-                outcome
-                    .warnings
-                    .push(format!("failed to read slice-folder entry: {err}"));
-                continue;
-            }
-        };
-        let path = entry.path();
-        if !is_markdown_file(&path) || known_paths.contains(&path) {
-            continue;
-        }
-        match validate_slice_file(path.clone()) {
-            Ok(candidate) => outcome.new_candidates.push(candidate),
-            Err(NscError::EmptySliceFile(_)) => outcome.warnings.push(format!(
-                "ignoring empty slice file during rescan: {}",
-                path.display()
-            )),
-            Err(NscError::PathIo { source, .. }) => outcome.warnings.push(format!(
-                "ignoring unreadable slice file during rescan: {} ({source})",
-                path.display()
-            )),
-            Err(err) => outcome.warnings.push(err.to_string()),
-        }
-    }
-    sort_candidates(&mut outcome.new_candidates);
-    outcome
 }
 
 fn validate_slice_file(path: PathBuf) -> Result<SliceCandidate> {
