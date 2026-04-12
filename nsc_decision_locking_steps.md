@@ -1978,10 +1978,25 @@ Recommended option:
 
 Options:
 
-- separate prompt template plus slice file content appended or interpolated
+- built-in default prompt template plus slice file content appended or
+  interpolated
+- external prompt template provided by CLI plus slice file content appended or
+  interpolated
 - fully self-contained slice file only
 
-Pros of separate template:
+Pros of a built-in default template:
+
+- better first-run experience
+- teaches the intended NSC single-slice model
+- reduces the chance that users reuse the wrong autonomous Night Shift prompt
+- keeps NSC usable out of the box
+
+Cons:
+
+- prompt text becomes part of the product surface
+- prompt revisions become product changes
+
+Pros of template-based construction:
 
 - matches the locked decision that NSC uses a separate single-slice prompt
   template
@@ -1994,8 +2009,9 @@ Cons:
 
 Recommended option:
 
-- separate template plus slice content, with one simple deterministic assembly
-  rule
+- NSC should ship with one default opinionated single-slice prompt template
+- CLI should allow overriding that template
+- prompt assembly should stay simple and deterministic
 
 #### 3. Worktree naming rule
 
