@@ -179,6 +179,10 @@ Prompt assembly should stay simple:
 - start with the built-in or overridden prompt template
 - pass the assigned slice file path to the worker as a repo-relative path
 - instruct the worker to read that exact slice file before acting
+- keep the built-in prompt single-slice and repo-agnostic
+- the built-in prompt may direct the worker through a bounded workflow such as:
+  pre-plan checkpoint, `$plan-author-review-loop`,
+  `$implementation-new-branch-pr`, and GitHub Codex review polling
 - do not inline slice contents into the prompt in v1
 - do not add extra prompt-generation logic in v1
 
