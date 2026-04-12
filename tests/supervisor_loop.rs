@@ -33,6 +33,13 @@ impl OutputSink for RecordingOutput {
             OutputEvent::StartupSummary { total_slices, .. } => format!("startup:{total_slices}"),
             OutputEvent::SliceStarting { label } => format!("starting:{label}"),
             OutputEvent::SliceFinishedNormally { label, .. } => format!("finished:{label}"),
+            OutputEvent::SliceRunning {
+                label, thread_id, ..
+            } => format!("running:{label}:{thread_id}"),
+            OutputEvent::SliceStillRunning {
+                label,
+                elapsed_seconds,
+            } => format!("heartbeat:{label}:{elapsed_seconds}"),
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
             OutputEvent::NewSliceDiscovered { label } => format!("new:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),

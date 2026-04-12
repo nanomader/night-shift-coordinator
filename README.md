@@ -96,10 +96,17 @@ Run NSC from the root of the target repository:
 nsc run <slice-folder>
 ```
 
+Run the same batch with extra lifecycle output:
+
+```bash
+nsc debug <slice-folder>
+```
+
 Optional prompt override:
 
 ```bash
 nsc run <slice-folder> --prompt-template <path>
+nsc debug <slice-folder> --prompt-template <path>
 ```
 
 Important rules:
@@ -264,6 +271,11 @@ Custom prompt:
 
 NSC writes plain terminal output for a human operator.
 
+Use `nsc run ...` for the quieter default output.
+
+Use `nsc debug ...` when you want extra lifecycle lines while a slice is still
+running.
+
 Example shape:
 
 ```text
@@ -273,12 +285,25 @@ Found 5 slices in folder
 Starting 3 slices: 01_auth_cleanup, 02_docs_pass, 03_runner_fix
 
 [03_runner_fix] finished normally
-  final_message: completed
-[04_followup] starting
 [02_docs_pass] needs attention
   reason: codex app-server run timed out after 28800 seconds
   thread_id: thread-123
   worktree: /repo/.nsc/worktrees/20260412-220501/02_docs_pass
+```
+
+Debug example:
+
+```text
+Night Shift Coordinator v0.1.0
+
+Found 1 slices in folder
+Starting 1 slices: 01_vendor_bin_phpunit
+
+[01_vendor_bin_phpunit] starting
+[01_vendor_bin_phpunit] running
+  thread_id: thread-123
+  worktree: /repo/.nsc/worktrees/20260412-220501/01_vendor_bin_phpunit
+[01_vendor_bin_phpunit] still running (60s elapsed)
 ```
 
 Meaning of the main runtime lines:
@@ -291,6 +316,8 @@ Meaning of the main runtime lines:
   NSC found a new markdown file during rescan and added it to the queue
 - `Fatal startup failure`:
   NSC rejected the initial batch before launching anything
+- `starting`, `running`, `still running`:
+  debug-only lifecycle lines shown by `nsc debug ...`
 
 ## Runtime Files
 
