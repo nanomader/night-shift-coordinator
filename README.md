@@ -144,6 +144,11 @@ By default, NSC:
 - uses that built-in prompt
 - passes the assigned slice file path to Codex as a repo-relative path
 - tells the worker to read that exact slice file before acting
+- drives a single-slice workflow built around:
+  - a repo-context pre-plan checkpoint
+  - `$plan-author-review-loop`
+  - `$implementation-new-branch-pr`
+  - bounded GitHub Codex review polling
 
 You can replace the built-in prompt with `--prompt-template <path>`.
 
