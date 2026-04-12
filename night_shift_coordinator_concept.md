@@ -81,6 +81,22 @@ If true execution order matters, the user should split the work into separate
 batches.
 NSC v1 does not enforce dependency graphs or overlap rules.
 
+## CLI Surface
+
+Recommended v1 CLI:
+
+```text
+nsc run <slice-folder>
+nsc run <slice-folder> --prompt-template <path>
+```
+
+Simple rule:
+
+- NSC runs from the target repository root
+- the slice folder is the primary required input
+- prompt override is optional
+- do not add more top-level commands in v1
+
 ## Queueing
 
 NSC v1 runs at most 3 slices in parallel.
@@ -93,6 +109,8 @@ If a batch has more than 3 slices:
 
 Filename ordering is only queue order.
 It is not dependency semantics.
+
+For v1, deterministic filename order means lexicographic filename sorting.
 
 ## Dynamic Batch Growth
 
@@ -128,9 +146,21 @@ Planning discipline belongs to preparation, not to a runtime scheduler.
 
 Recommended minimum validity rule:
 
-- a slice is any non-empty `*.md` file outside `.nsc/`
+- a discoverable slice candidate is any non-empty `*.md` file outside `.nsc/`
+- launch admission may still reject a discovered candidate before start
 - unreadable or empty slice files should fail the initial startup scan
 - malformed files discovered later should warn and be ignored until fixed
+
+Startup rule:
+
+- if the initial slice-folder scan finds unreadable or empty slice files, NSC
+  should fail before launching anything
+
+Mid-run rule:
+
+- if a later rescan finds unreadable, empty, or otherwise malformed new slice
+  files, NSC should warn and ignore those files until they are fixed
+- already running slices should continue
 
 ## Prompt Model
 
@@ -221,6 +251,32 @@ It should not over-interpret it.
 If runtime or protocol evidence is missing or abnormal, NSC should use
 `attention_needed` instead.
 
+## App Server Boundary
+
+NSC v1 should depend only on Codex App Server runtime facts for runtime-state
+classification.
+
+That means:
+
+- thread and turn start signals
+- turn completion or failure signals
+- terminal prompt-message capture
+
+That does not mean:
+
+- checking repository correctness
+- checking tests
+- checking review state
+- checking merge state
+
+Those concerns stay outside NSC's runtime-state boundary in v1.
+
+Recommended implementation boundary:
+
+- App Server integration should sit behind one narrow adapter
+- that adapter should emit coarse lifecycle events plus terminal message text
+- the supervisor should not parse raw protocol details throughout the codebase
+
 ## Recovery
 
 NSC v1 does not support supervisor restart or NSC-run resume.
@@ -232,11 +288,22 @@ It should persist only a tiny recovery breadcrumb per started slice:
 - `thread_id`
 - `status`
 
+The recovery file should use one fixed JSON shape in v1 with exactly those
+fields.
+
 This is only for manual operator recovery, for example:
 
 ```text
 codex resume <thread_id>
 ```
+
+Important boundary:
+
+- NSC does not keep a durable implemented-versus-not-implemented ledger in v1
+- in-memory queue state only lives for the current live run
+- a new NSC process means a new run, not a resumed run
+- existing recovery files may be surfaced as warnings, but must not be adopted
+  automatically
 
 ## Operator Output
 
@@ -252,6 +319,15 @@ It should:
 - print thread id and worktree path when attention is needed
 
 Slice labels shown to the operator should use the filename stem.
+
+Recommended printed event set:
+
+- startup summary
+- slice starting
+- slice finished normally
+- slice needs attention
+- new slice discovered
+- fatal startup failure
 
 Example shape:
 
@@ -278,6 +354,59 @@ NSC v1 distribution should include:
 - Homebrew support
 
 `cargo install` may be offered as a secondary convenience for Rust users.
+
+## Test Strategy
+
+Tests are one of the main reliability levers for NSC v1.
+
+The goal is not broad coverage for its own sake.
+The goal is confidence in the small supervisor loop and its filesystem and
+runtime contracts.
+
+### Unit tests should cover
+
+- slice discovery from a folder
+- `.nsc/` exclusion from slice discovery
+- non-empty markdown validity checks
+- deterministic lexicographic filename ordering
+- queue admission decisions
+- worktree path construction
+- recovery file path construction
+- recovery file creation and update
+- runtime state transitions from mocked App Server events
+
+### Integration-style tests should cover
+
+- startup with more than 3 slices
+- queueing the remainder after the first 3 launches
+- launching the next slice when a slot frees up
+- discovering newly added slice files on rescan
+- ignoring malformed newly added slice files while continuing existing runs
+- writing usable recovery breadcrumbs for manual recovery
+- classifying normal completion versus attention-needed outcomes
+
+### Test boundaries for v1
+
+Do test:
+
+- filesystem behavior
+- queue behavior
+- recovery-file behavior
+- App Server event interpretation behind a controlled adapter
+
+Do not require in v1:
+
+- real GitHub workflow tests
+- merge-flow tests
+- repo-correctness tests
+- end-to-end tests against live Codex production services for every run
+
+### Practical recommendation
+
+- use focused unit tests for pure logic and path handling
+- use a small number of integration-style tests for the supervisor loop
+- isolate App Server interactions behind a narrow adapter so tests can drive
+  deterministic fake event streams
 
 ## Non-Goals for v1
 
