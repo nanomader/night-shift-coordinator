@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -13,7 +15,7 @@ use crate::error::{NscError, Result};
 #[derive(Debug, Clone)]
 pub struct RunSliceRequest {
     pub worktree_path: PathBuf,
-    pub slice_file_path: PathBuf,
+    pub slice_repo_relative_path: PathBuf,
     pub prompt_template: String,
 }
 
@@ -73,9 +75,11 @@ fn build_prompt_text(request: &RunSliceRequest) -> String {
     format!(
         "{template}\n{slice_path}\n\nRead that exact slice file before acting.\nTreat it as immutable for this run.\n",
         template = request.prompt_template.trim_end(),
-        slice_path = request.slice_file_path.display(),
+        slice_path = request.slice_repo_relative_path.display(),
     )
 }
+
+const MAX_RUN_DURATION: Duration = Duration::from_secs(8 * 60 * 60);
 
 struct Session {
     child: Child,
@@ -219,8 +223,16 @@ impl Session {
     }
 
     async fn wait_for_terminal_outcome(mut self, turn_id: String) -> Result<TerminalRunOutcome> {
+        let outcome =
+            apply_run_timeout(MAX_RUN_DURATION, self.collect_terminal_outcome(&turn_id)).await;
+        let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+        outcome
+    }
+
+    async fn collect_terminal_outcome(&mut self, turn_id: &str) -> Result<TerminalRunOutcome> {
         let mut notifications = Vec::new();
-        let outcome = loop {
+        loop {
             let notification = self.wait_for_notification().await?;
             let method = notification
                 .get("method")
@@ -251,18 +263,15 @@ impl Session {
                         reason: format!("codex app-server turn finished with status {status}"),
                     });
                 }
-                let terminal_message = canonical_terminal_message(&notifications, &turn_id)
+                let terminal_message = canonical_terminal_message(&notifications, turn_id)
                     .ok_or_else(|| {
                         self.protocol_error(
                             "codex app-server completed turn without terminal message content",
                         )
                     })?;
-                break Ok(TerminalRunOutcome::FinishedPromptOwned { terminal_message });
+                return Ok(TerminalRunOutcome::FinishedPromptOwned { terminal_message });
             }
-        };
-        let _ = self.child.kill().await;
-        let _ = self.child.wait().await;
-        outcome
+        }
     }
 
     async fn send_request(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -364,6 +373,21 @@ impl Session {
 
     fn cwd_string(&self) -> Result<String> {
         Ok(self.cwd.clone())
+    }
+}
+
+async fn apply_run_timeout<F>(duration: Duration, future: F) -> Result<TerminalRunOutcome>
+where
+    F: Future<Output = Result<TerminalRunOutcome>>,
+{
+    match tokio::time::timeout(duration, future).await {
+        Ok(result) => result,
+        Err(_) => Ok(TerminalRunOutcome::AttentionNeeded {
+            reason: format!(
+                "codex app-server run timed out after {} seconds",
+                duration.as_secs()
+            ),
+        }),
     }
 }
 
@@ -535,9 +559,16 @@ fn notification_turn_id(notification: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use std::path::PathBuf;
+    use std::time::Duration;
 
-    use super::canonical_terminal_message;
+    use serde_json::json;
+    use tokio::time::sleep;
+
+    use super::{
+        RunSliceRequest, TerminalRunOutcome, apply_run_timeout, build_prompt_text,
+        canonical_terminal_message,
+    };
 
     #[test]
     fn canonical_terminal_message_prefers_item_completed() {
@@ -573,5 +604,37 @@ mod tests {
             canonical_terminal_message(&notifications, "turn-1").as_deref(),
             Some("blocked")
         );
+    }
+
+    #[test]
+    fn build_prompt_text_uses_repo_relative_slice_path() {
+        let request = RunSliceRequest {
+            worktree_path: PathBuf::from("/tmp/worktree"),
+            slice_repo_relative_path: PathBuf::from("slices/01_slice.md"),
+            prompt_template: "Prompt body".to_string(),
+        };
+
+        let text = build_prompt_text(&request);
+
+        assert!(text.contains("slices/01_slice.md"));
+    }
+
+    #[tokio::test]
+    async fn apply_run_timeout_returns_attention_needed_for_hung_run() {
+        let outcome = apply_run_timeout(Duration::from_millis(10), async {
+            sleep(Duration::from_millis(50)).await;
+            Ok(TerminalRunOutcome::FinishedPromptOwned {
+                terminal_message: "done".to_string(),
+            })
+        })
+        .await
+        .unwrap();
+
+        match outcome {
+            TerminalRunOutcome::AttentionNeeded { reason } => {
+                assert!(reason.contains("timed out"));
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
     }
 }
