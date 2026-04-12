@@ -53,13 +53,13 @@ pub enum OutputEvent<'a> {
         worktree_path: &'a Path,
         reason: &'a str,
     },
-    NewSliceDiscovered {
-        label: &'a str,
-    },
     Warning {
         message: &'a str,
     },
     FatalStartupFailure {
+        message: &'a str,
+    },
+    RunStopped {
         message: &'a str,
     },
 }
@@ -203,14 +203,14 @@ fn render_event_lines(
             }
             stdout_lines.push(format!("  worktree: {}", worktree_path.display()));
         }
-        OutputEvent::NewSliceDiscovered { label } => {
-            stdout_lines.push(format!("Discovered new slice: {label}.md"));
-        }
         OutputEvent::Warning { message } => {
             stdout_lines.push(format!("Warning: {message}"));
         }
         OutputEvent::FatalStartupFailure { message } => {
             stderr_lines.push(format!("Fatal startup failure: {message}"));
+        }
+        OutputEvent::RunStopped { message } => {
+            stderr_lines.push(format!("Run stopped: {message}"));
         }
     }
 
@@ -349,6 +349,24 @@ mod tests {
                 "Wave-dir 1/3 finished: batch02_php_vendor_bin_phpunit (MERGED_SUCCESS)"
                     .to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn run_stopped_renders_to_stderr() {
+        let rendered = render_event_lines(
+            OutputMode::Normal,
+            true,
+            OutputEvent::RunStopped {
+                message: "worktree creation failed",
+            },
+        )
+        .unwrap();
+
+        assert!(rendered.0.is_empty());
+        assert_eq!(
+            rendered.1,
+            vec!["Run stopped: worktree creation failed".to_string()]
         );
     }
 }
