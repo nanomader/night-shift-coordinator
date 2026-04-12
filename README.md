@@ -244,6 +244,9 @@ mkdir -p slices
 $EDITOR slices/01_readme_cleanup.md
 $EDITOR slices/02_cli_examples.md
 $EDITOR slices/03_docs_pass.md
+git add slices/
+git commit -m "Prepare Night Shift slices"
+git push origin main
 nsc run slices/
 ```
 
@@ -263,6 +266,19 @@ nsc run slices/
    successfully enough
 8. if one wave-dir stops with blocker, manual follow-up, missing marker, or bad
    merge verification, NSC stops and does not continue to the next sibling
+
+Minimal example:
+
+```bash
+cd ~/code/my-repo
+$EDITOR repo_materials/night_shift_batches/validation_entrypoint_wave2_php/README.md
+$EDITOR repo_materials/night_shift_batches/validation_entrypoint_wave2_php/batch02_php_vendor_bin_phpunit/01_vendor_bin_phpunit.md
+$EDITOR repo_materials/night_shift_batches/validation_entrypoint_wave2_php/batch03_composer_test_phpunit/01_composer_test_phpunit.md
+git add repo_materials/night_shift_batches/
+git commit -m "Prepare ordered Night Shift wave dirs"
+git push origin main
+nsc run repo_materials/night_shift_batches/validation_entrypoint_wave2_php/ --schedule wave-dirs
+```
 
 ## Slice Files
 
