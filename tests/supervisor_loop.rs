@@ -60,9 +60,9 @@ impl OutputSink for RecordingOutput {
                 elapsed_seconds,
             } => format!("heartbeat:{label}:{elapsed_seconds}"),
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
-            OutputEvent::NewSliceDiscovered { label } => format!("new:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
+            OutputEvent::RunStopped { message } => format!("run-stopped:{message}"),
         };
         self.lines.lock().unwrap().push(line);
     }
@@ -108,6 +108,20 @@ async fn starts_next_slice_when_a_slot_frees_up() {
         )
         .unwrap();
     }
+    git_ok(repo.path(), ["add", "."]);
+    git_ok(
+        repo.path(),
+        [
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test User",
+            "commit",
+            "-m",
+            "add slices",
+        ],
+    );
+    git_ok(repo.path(), ["push", "origin", "main"]);
 
     let client = FakeAppServerClient::new(vec![
         TerminalRunOutcome::FinishedPromptOwned {
