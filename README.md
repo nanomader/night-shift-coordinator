@@ -15,7 +15,9 @@ It does:
 
 - discover slice markdown files in a batch folder
 - run up to 3 slices at a time
-- create one git worktree per running slice
+- support one explicit ordered-root mode with `--schedule wave-dirs`
+- fetch `origin/main` and create one git worktree per running slice from that
+  remote base
 - create one fresh Codex App Server thread per running slice
 - record minimal recovery breadcrumbs under `.nsc/`
 - print human-readable runtime updates to the terminal
@@ -44,6 +46,13 @@ order.
 
 When a slot frees up, NSC rescans the folder. That means you can add more slice
 files while NSC is already running.
+
+For prepared ordered work, NSC also supports:
+
+- `nsc run <wave-root> --schedule wave-dirs`
+- immediate child `batchNN_*` directories as ordered wave boundaries
+- current flat-batch behavior inside one child wave-dir
+- `origin/main` refresh and merged-success verification between child wave-dirs
 
 ## Requirements
 
@@ -109,12 +118,31 @@ nsc run <slice-folder> --prompt-template <path>
 nsc debug <slice-folder> --prompt-template <path>
 ```
 
+Ordered-root mode:
+
+```bash
+nsc run <wave-root> --schedule wave-dirs
+nsc debug <wave-root> --schedule wave-dirs
+```
+
 Important rules:
 
 - the current working directory must be the target repo root
 - the slice folder must be inside that repository
+- NSC fetches `origin/main` and creates slice worktrees from that remote base
 - once NSC discovers a slice file for the current run, treat that file as
   immutable for that run
+
+Wave-dirs mode rules:
+
+- immediate child wave directories must match `batchNN_name`
+- numbering must be contiguous inside the supplied root
+- `README.md` and hidden entries are allowed in the root
+- any other root-level non-directory entry fails fast
+- sibling wave-dirs are discovered once at startup in this mode
+- NSC unlocks the next wave-dir only after every slice in the current wave-dir
+  reports merged success and the reported merge SHAs verify on fetched
+  `origin/main`
 
 ## Real-Life Flow
 
@@ -227,6 +255,10 @@ not belong in the same NSC v1 run. Split them into separate batches.
 NSC does not manage dependencies in v1. If a batch is unsafe, that is a slice
 preparation problem, not something NSC will fix at runtime.
 
+For prepared ordered work such as GoalCoder wave queues, use
+`--schedule wave-dirs` instead of flattening dependent slices into one
+parallel-safe batch.
+
 ## What NSC Assumes
 
 NSC v1 assumes:
@@ -237,6 +269,8 @@ NSC v1 assumes:
 - the slice batch is already safe to run in parallel
 - discovered slice files do not change during the run
 - repo-local workflow docs are authoritative for implementation behavior
+- in `--schedule wave-dirs` mode, sibling child directories encode the required
+  execution order
 
 ## Prompt Model
 
@@ -247,6 +281,7 @@ By default, NSC:
 - uses that built-in prompt
 - passes the assigned slice file path to Codex as a repo-relative path
 - tells the worker to read that exact slice file before acting
+- fetches `origin/main` and creates the slice worktree from that remote base
 - drives a single-slice workflow built around:
   - a repo-context pre-plan checkpoint
   - `$plan-author-review-loop`
@@ -258,14 +293,28 @@ You can replace the built-in prompt with `--prompt-template <path>`.
 Built-in prompt:
 
 - good when you want NSC to encourage a specific Night Shift execution style
-- assumes a single-slice flow with planning, implementation, PR creation, and
-  bounded review polling
+- assumes a single-slice flow with planning, implementation, PR creation,
+  bounded review polling, and merge only after a GitHub Codex review comment
+  begins with `Codex Review: Didn't find any major issues.`
 
 Custom prompt:
 
 - useful when the target repo has a different workflow
 - still runs under the same NSC runtime model
 - does not change what NSC supervises or what NSC ignores
+
+In `--schedule wave-dirs` mode, the prompt must emit exact machine-readable
+final lines such as:
+
+```text
+NSC_RESULT: MERGED_SUCCESS
+NSC_MERGED_MAIN_SHA: <40-hex-sha>
+NSC_PR: <number>
+```
+
+The built-in prompt satisfies that contract. A custom prompt used with
+`--schedule wave-dirs` must satisfy it too, or NSC will stop instead of
+unlocking the next wave-dir.
 
 ## Runtime Output
 
@@ -392,7 +441,7 @@ NSC v1 is intentionally narrow:
 - no TUI
 - no automatic retry
 - no supervisor restart or run resume
-- no GitHub or merge orchestration
+- no GitHub or merge orchestration beyond the built-in prompt contract
 
 NSC also does not:
 

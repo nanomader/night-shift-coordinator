@@ -6,6 +6,8 @@ pub mod output;
 pub mod recovery;
 pub mod slice;
 pub mod supervisor;
+pub mod terminal_result;
+pub mod wave_dirs;
 pub mod worktree;
 
 use std::path::{Path, PathBuf};
@@ -26,6 +28,7 @@ pub async fn run(args: cli::RunArgs, output_mode: OutputMode) -> Result<()> {
         repo_root,
         slice_folder,
         prompt_template,
+        schedule: args.schedule,
     };
     supervisor::run(options, &client, &mut output).await
 }

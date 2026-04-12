@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 use std::fs;
+use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -7,6 +9,7 @@ use async_trait::async_trait;
 use night_shift_coordinator::app_server::{
     AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome,
 };
+use night_shift_coordinator::cli::ScheduleMode;
 use night_shift_coordinator::error::Result;
 use night_shift_coordinator::output::{OutputEvent, OutputSink};
 use night_shift_coordinator::supervisor::{SupervisorOptions, run};
@@ -30,6 +33,22 @@ impl RecordingOutput {
 impl OutputSink for RecordingOutput {
     fn emit(&mut self, event: OutputEvent<'_>) {
         let line = match event {
+            OutputEvent::WaveRootSummary { total_wave_dirs } => format!("waves:{total_wave_dirs}"),
+            OutputEvent::WaveDirStarting { index, total, name } => {
+                format!("wave-start:{index}/{total}:{name}")
+            }
+            OutputEvent::WaveDirFinished {
+                index,
+                total,
+                name,
+                result,
+            } => format!("wave-finished:{index}/{total}:{name}:{result}"),
+            OutputEvent::WaveDirStopped {
+                index,
+                total,
+                name,
+                reason,
+            } => format!("wave-stopped:{index}/{total}:{name}:{reason}"),
             OutputEvent::StartupSummary { total_slices, .. } => format!("startup:{total_slices}"),
             OutputEvent::SliceStarting { label } => format!("starting:{label}"),
             OutputEvent::SliceFinishedNormally { label, .. } => format!("finished:{label}"),
@@ -79,7 +98,7 @@ impl AppServerClient for FakeAppServerClient {
 
 #[tokio::test]
 async fn starts_next_slice_when_a_slot_frees_up() {
-    let repo = init_git_repo();
+    let repo = init_git_repo_with_origin();
     let slice_dir = repo.path().join("slices");
     fs::create_dir_all(&slice_dir).unwrap();
     for idx in 1..=4 {
@@ -103,6 +122,7 @@ async fn starts_next_slice_when_a_slot_frees_up() {
             repo_root: repo.path().to_path_buf(),
             slice_folder: slice_dir,
             prompt_template: "prompt".to_string(),
+            schedule: ScheduleMode::Flat,
         },
         &client,
         &mut output,
@@ -117,7 +137,7 @@ async fn starts_next_slice_when_a_slot_frees_up() {
 #[cfg(unix)]
 #[tokio::test]
 async fn startup_unreadable_slice_fails_before_any_run_is_launched() {
-    let repo = init_git_repo();
+    let repo = init_git_repo_with_origin();
     let slice_dir = repo.path().join("slices");
     fs::create_dir_all(&slice_dir).unwrap();
     let unreadable = slice_dir.join("01_unreadable.md");
@@ -136,6 +156,7 @@ async fn startup_unreadable_slice_fails_before_any_run_is_launched() {
             repo_root: repo.path().to_path_buf(),
             slice_folder: slice_dir,
             prompt_template: "prompt".to_string(),
+            schedule: ScheduleMode::Flat,
         },
         &client,
         &mut output,
@@ -149,21 +170,15 @@ async fn startup_unreadable_slice_fails_before_any_run_is_launched() {
     assert!(lines.iter().any(|line| line.starts_with("fatal:")));
 }
 
-fn init_git_repo() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
-    fs::write(temp.path().join("README.md"), "test").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args([
+#[tokio::test]
+async fn startup_fails_when_origin_main_is_unavailable() {
+    let repo = TempDir::new().unwrap();
+    git_ok(repo.path(), ["init", "--initial-branch=main"]);
+    fs::write(repo.path().join("README.md"), "test").unwrap();
+    git_ok(repo.path(), ["add", "."]);
+    git_ok(
+        repo.path(),
+        [
             "-c",
             "user.email=test@example.com",
             "-c",
@@ -171,9 +186,77 @@ fn init_git_repo() -> TempDir {
             "commit",
             "-m",
             "init",
-        ])
-        .current_dir(temp.path())
+        ],
+    );
+
+    let slice_dir = repo.path().join("slices");
+    fs::create_dir_all(&slice_dir).unwrap();
+    fs::write(slice_dir.join("01_slice.md"), "slice").unwrap();
+
+    let client = FakeAppServerClient::new(vec![]);
+    let start_count = Arc::clone(&client.start_count);
+    let mut output = RecordingOutput::new();
+
+    let result = run(
+        SupervisorOptions {
+            repo_root: repo.path().to_path_buf(),
+            slice_folder: slice_dir,
+            prompt_template: "prompt".to_string(),
+            schedule: ScheduleMode::Flat,
+        },
+        &client,
+        &mut output,
+    )
+    .await;
+
+    assert!(result.is_err());
+    assert_eq!(start_count.load(Ordering::SeqCst), 0);
+    let lines = output.lines.lock().unwrap().clone();
+    assert!(lines.iter().any(|line| line.starts_with("fatal:")));
+}
+
+fn init_git_repo_with_origin() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    git_ok(temp.path(), ["init", "--initial-branch=main"]);
+    fs::write(temp.path().join("README.md"), "test").unwrap();
+    git_ok(temp.path(), ["add", "."]);
+    git_ok(
+        temp.path(),
+        [
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test User",
+            "commit",
+            "-m",
+            "init",
+        ],
+    );
+    let origin_path = temp.path().join("_origin.git");
+    fs::create_dir_all(&origin_path).unwrap();
+    git_ok(
+        &origin_path,
+        ["init", "--bare", "--initial-branch=main", "."],
+    );
+    git_ok(
+        temp.path(),
+        ["remote", "add", "origin", origin_path.to_str().unwrap()],
+    );
+    git_ok(temp.path(), ["push", "-u", "origin", "main"]);
+    temp
+}
+
+fn git_ok<const N: usize>(repo_root: &Path, args: [&str; N]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_root)
         .output()
         .unwrap();
-    temp
+    assert!(
+        output.status.success(),
+        "git {:?} failed: stdout={}, stderr={}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
