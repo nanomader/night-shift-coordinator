@@ -11,6 +11,9 @@ which runs finished normally and which runs need attention.
 
 NSC is an execution supervisor for prepared Night Shift work.
 
+It executes prepared work. It does not prepare, repair, or reinterpret that
+work.
+
 It does:
 
 - discover slice markdown files in a batch folder
@@ -27,6 +30,7 @@ It does not:
 - prepare slices
 - decide slice order or dependency rules
 - decide whether slices are logically safe to run together
+- repair incomplete prepared input so a run can proceed anyway
 - judge implementation correctness
 - manage review or merge policy
 - resume or restart a previous NSC run
@@ -76,10 +80,12 @@ Contract:
 - one slice = one markdown file
 - every non-empty `*.md` file in that folder is treated as a slice candidate
 - the folder is assumed to contain only slices that are safe to run in parallel
+- the slice set is frozen at startup for that run
+- NSC validates that startup slice set against the exact repository state it
+  will execute from
 - NSC runs up to 3 slices at a time
 - if there are more than 3 slice files, NSC queues them in lexicographic
   filename order
-- when a slot frees up, NSC rescans the folder and can admit new slice files
 
 Example:
 
@@ -195,9 +201,14 @@ Important rules:
 
 - the current working directory must be the target repo root
 - the slice folder must be inside that repository
-- NSC fetches `origin/main` and creates slice worktrees from that remote base
+- NSC force-fetches `origin/main`, resolves an exact base SHA, and creates
+  slice worktrees from that frozen base
+- prepared slice files must already exist on the repository state NSC executes
+  from
 - once NSC discovers a slice file for the current run, treat that file as
   immutable for that run
+- NSC does not copy slice files into worktrees to compensate for incomplete
+  prepared input
 
 Wave-dirs mode rules:
 
@@ -205,6 +216,8 @@ Wave-dirs mode rules:
 - `README.md` and hidden entries are allowed in the root
 - any other root-level non-directory entry fails fast
 - sibling wave-dirs are discovered once at startup in this mode
+- NSC resolves one exact base SHA per wave-dir and validates that wave against
+  that SHA before launch
 
 ## Real-Life Flow
 
@@ -214,14 +227,14 @@ Typical operator flow:
 
 1. prepare a target repo with a folder of slice markdown files
 2. make sure the files in that folder are safe to run in parallel
-3. run `nsc run <slice-folder>` from the target repo root
-4. watch the terminal for:
+3. make sure the prepared slice files already exist in the repository state NSC
+   will execute from
+4. run `nsc run <slice-folder>` from the target repo root
+5. watch the terminal for:
    - slices that finished normally
    - slices that need attention
-   - newly discovered slices after rescans
-5. inspect `.nsc/recovery/...` and `.nsc/worktrees/...` when a slice needs
+6. inspect `.nsc/recovery/...` and `.nsc/worktrees/...` when a slice needs
    manual follow-up
-6. add more slice files to the folder if more parallel-safe work becomes ready
 
 Example:
 
@@ -234,28 +247,21 @@ $EDITOR slices/03_docs_pass.md
 nsc run slices/
 ```
 
-If more work becomes ready later:
-
-```bash
-$EDITOR slices/04_followup_cleanup.md
-$EDITOR slices/05_release_notes.md
-```
-
-NSC will discover those files when a slot frees up and add them to the queue.
-
 ### Ordered Wave-Dirs Flow
 
 1. prepare one root directory whose immediate child directories are ordered
    wave-dirs such as `batch02_*`, `batch03_*`, `batch04_*`
-2. make sure slices inside one child directory are safe to run, review, and
+2. make sure the prepared wave-root and slice files already exist in the
+   repository state NSC will execute from
+3. make sure slices inside one child directory are safe to run, review, and
    land from the same fetched `origin/main` base
-3. run `nsc run <wave-root> --schedule wave-dirs`
-4. NSC runs the first child wave-dir only
-5. after that wave-dir finishes, NSC fetches `origin/main` and verifies the
+4. run `nsc run <wave-root> --schedule wave-dirs`
+5. NSC runs the first child wave-dir only
+6. after that wave-dir finishes, NSC fetches `origin/main` and verifies the
    reported merged SHA for every slice in that wave-dir
-6. NSC starts the next child wave-dir only if the previous one landed
+7. NSC starts the next child wave-dir only if the previous one landed
    successfully enough
-7. if one wave-dir stops with blocker, manual follow-up, missing marker, or bad
+8. if one wave-dir stops with blocker, manual follow-up, missing marker, or bad
    merge verification, NSC stops and does not continue to the next sibling
 
 ## Slice Files
@@ -347,6 +353,7 @@ NSC v1 assumes:
 - the slice folder is inside that repo
 - `git` and `codex` are available
 - the slice batch is already safe to run in parallel
+- prepared slice files already exist in the repository state NSC executes from
 - discovered slice files do not change during the run
 - repo-local workflow docs are authoritative for implementation behavior
 - in `--schedule wave-dirs` mode, sibling child directories encode the required
@@ -465,12 +472,13 @@ Meaning of the main runtime lines:
   the App Server turn completed and NSC captured the final prompt message
 - `needs attention`:
   launch, runtime, protocol, or timeout handling did not complete normally
-- `Discovered new slice`:
-  NSC found a new markdown file during rescan and added it to the queue
 - `Starting wave-dir` / `Wave-dir finished` / `Wave-dir stopped`:
   ordered wave-dirs progress in `--schedule wave-dirs` mode
 - `Fatal startup failure`:
   NSC rejected the initial batch before launching anything
+- `Run stopped`:
+  a later internal failure stopped the current run after startup had already
+  succeeded
 - `starting`, `running`, `still running`:
   debug-only lifecycle lines shown by `nsc debug ...`
 
@@ -519,6 +527,7 @@ Startup problems:
 
 - unreadable or empty slice file in the initial batch
 - invalid slice-folder path
+- prepared slice file missing from the repository state NSC executes from
 
 Result:
 
@@ -526,14 +535,12 @@ Result:
 
 Mid-run problems:
 
-- unreadable or empty new slice file discovered later
 - App Server timeout
 - App Server protocol failure
 - launch failure
 
 Result:
 
-- bad new slice files are warned and ignored
 - active slice runs continue when possible
 - the affected slice is marked as needing attention when runtime handling fails
 
@@ -549,6 +556,19 @@ Result:
 
 - NSC stops before the next sibling wave-dir starts
 
+Execution-truth problems:
+
+- a slice file exists in the operator checkout but not on the frozen execution
+  base
+- local `origin/main` was stale or rewritten until NSC refreshed it
+
+Result:
+
+- NSC refreshes `origin/main`, resolves the exact base SHA, and validates the
+  prepared input against that base before launch
+- if the slice set does not exist on that execution truth, NSC fails instead of
+  compensating for it
+
 ## Current v1 Limits
 
 NSC v1 is intentionally narrow:
@@ -558,6 +578,7 @@ NSC v1 is intentionally narrow:
 - no overlap scheduler
 - no TUI
 - no automatic retry
+- no dynamic flat-batch refill after startup
 - no supervisor restart or run resume
 - no GitHub or merge orchestration beyond the built-in prompt contract
 
