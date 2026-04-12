@@ -49,6 +49,18 @@ Workflow:
     - blocker, or
     - stop condition, or
     - manual follow-up needed
+12. At the very end of the final message, emit exact standalone machine-readable
+    result lines for NSC:
+    - merged success:
+      - `NSC_RESULT: MERGED_SUCCESS`
+      - `NSC_MERGED_MAIN_SHA: <40-hex-sha>`
+      - `NSC_PR: <number>`
+    - manual follow-up:
+      - `NSC_RESULT: MANUAL_FOLLOWUP`
+    - blocker:
+      - `NSC_RESULT: BLOCKED`
+    - stop condition:
+      - `NSC_RESULT: STOPPED`
 
 Final message expectations:
 
@@ -58,5 +70,7 @@ Final message expectations:
 - report the latest review state you reached
 - report the main validation result
 - report any blocker or follow-up plainly
+- keep the `NSC_RESULT` lines as exact standalone lines so NSC can parse them
+  deterministically
 
 Assigned slice file path:

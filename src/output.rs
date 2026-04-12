@@ -7,6 +7,26 @@ pub enum OutputMode {
 }
 
 pub enum OutputEvent<'a> {
+    WaveRootSummary {
+        total_wave_dirs: usize,
+    },
+    WaveDirStarting {
+        index: usize,
+        total: usize,
+        name: &'a str,
+    },
+    WaveDirFinished {
+        index: usize,
+        total: usize,
+        name: &'a str,
+        result: &'a str,
+    },
+    WaveDirStopped {
+        index: usize,
+        total: usize,
+        name: &'a str,
+        reason: &'a str,
+    },
     StartupSummary {
         total_slices: usize,
         starting_labels: &'a [String],
@@ -87,6 +107,37 @@ fn render_event_lines(
     let mut next_printed_header = printed_header;
 
     match event {
+        OutputEvent::WaveRootSummary { total_wave_dirs } => {
+            if !printed_header {
+                stdout_lines.push("Night Shift Coordinator v0.1.0".to_string());
+                stdout_lines.push(String::new());
+                next_printed_header = true;
+            }
+            stdout_lines.push(format!("Found {total_wave_dirs} wave-dirs in root"));
+            stdout_lines.push(String::new());
+        }
+        OutputEvent::WaveDirStarting { index, total, name } => {
+            stdout_lines.push(format!("Starting wave-dir {index}/{total}: {name}"));
+        }
+        OutputEvent::WaveDirFinished {
+            index,
+            total,
+            name,
+            result,
+        } => {
+            stdout_lines.push(format!(
+                "Wave-dir {index}/{total} finished: {name} ({result})"
+            ));
+        }
+        OutputEvent::WaveDirStopped {
+            index,
+            total,
+            name,
+            reason,
+        } => {
+            stdout_lines.push(format!("Wave-dir {index}/{total} stopped: {name}"));
+            stdout_lines.push(format!("  reason: {}", reason.trim()));
+        }
         OutputEvent::StartupSummary {
             total_slices,
             starting_labels,
@@ -246,6 +297,58 @@ mod tests {
         assert_eq!(
             heartbeat.0,
             vec!["[01_slice] still running (60s elapsed)".to_string()]
+        );
+    }
+
+    #[test]
+    fn wave_dir_events_render_in_normal_mode() {
+        let summary = render_event_lines(
+            OutputMode::Normal,
+            false,
+            OutputEvent::WaveRootSummary { total_wave_dirs: 3 },
+        )
+        .unwrap();
+        let starting = render_event_lines(
+            OutputMode::Normal,
+            true,
+            OutputEvent::WaveDirStarting {
+                index: 1,
+                total: 3,
+                name: "batch02_php_vendor_bin_phpunit",
+            },
+        )
+        .unwrap();
+        let finished = render_event_lines(
+            OutputMode::Normal,
+            true,
+            OutputEvent::WaveDirFinished {
+                index: 1,
+                total: 3,
+                name: "batch02_php_vendor_bin_phpunit",
+                result: "MERGED_SUCCESS",
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            summary.0,
+            vec![
+                "Night Shift Coordinator v0.1.0".to_string(),
+                String::new(),
+                "Found 3 wave-dirs in root".to_string(),
+                String::new()
+            ]
+        );
+        assert_eq!(
+            starting.0,
+            vec!["Starting wave-dir 1/3: batch02_php_vendor_bin_phpunit".to_string()]
+        );
+        assert_eq!(
+            finished.0,
+            vec![
+                "Wave-dir 1/3 finished: batch02_php_vendor_bin_phpunit (MERGED_SUCCESS)"
+                    .to_string()
+            ]
         );
     }
 }

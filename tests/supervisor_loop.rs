@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use night_shift_coordinator::app_server::{
     AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome,
 };
+use night_shift_coordinator::cli::ScheduleMode;
 use night_shift_coordinator::error::Result;
 use night_shift_coordinator::output::{OutputEvent, OutputSink};
 use night_shift_coordinator::supervisor::{SupervisorOptions, run};
@@ -32,6 +33,22 @@ impl RecordingOutput {
 impl OutputSink for RecordingOutput {
     fn emit(&mut self, event: OutputEvent<'_>) {
         let line = match event {
+            OutputEvent::WaveRootSummary { total_wave_dirs } => format!("waves:{total_wave_dirs}"),
+            OutputEvent::WaveDirStarting { index, total, name } => {
+                format!("wave-start:{index}/{total}:{name}")
+            }
+            OutputEvent::WaveDirFinished {
+                index,
+                total,
+                name,
+                result,
+            } => format!("wave-finished:{index}/{total}:{name}:{result}"),
+            OutputEvent::WaveDirStopped {
+                index,
+                total,
+                name,
+                reason,
+            } => format!("wave-stopped:{index}/{total}:{name}:{reason}"),
             OutputEvent::StartupSummary { total_slices, .. } => format!("startup:{total_slices}"),
             OutputEvent::SliceStarting { label } => format!("starting:{label}"),
             OutputEvent::SliceFinishedNormally { label, .. } => format!("finished:{label}"),
@@ -105,6 +122,7 @@ async fn starts_next_slice_when_a_slot_frees_up() {
             repo_root: repo.path().to_path_buf(),
             slice_folder: slice_dir,
             prompt_template: "prompt".to_string(),
+            schedule: ScheduleMode::Flat,
         },
         &client,
         &mut output,
@@ -138,6 +156,7 @@ async fn startup_unreadable_slice_fails_before_any_run_is_launched() {
             repo_root: repo.path().to_path_buf(),
             slice_folder: slice_dir,
             prompt_template: "prompt".to_string(),
+            schedule: ScheduleMode::Flat,
         },
         &client,
         &mut output,
@@ -183,6 +202,7 @@ async fn startup_fails_when_origin_main_is_unavailable() {
             repo_root: repo.path().to_path_buf(),
             slice_folder: slice_dir,
             prompt_template: "prompt".to_string(),
+            schedule: ScheduleMode::Flat,
         },
         &client,
         &mut output,

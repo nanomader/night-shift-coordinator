@@ -72,6 +72,20 @@ pub fn create_worktree(
     Ok(path)
 }
 
+pub fn origin_main_contains_commit(repo_root: &Path, commit_sha: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .args(["merge-base", "--is-ancestor", commit_sha, DEFAULT_BASE_REF])
+        .current_dir(repo_root)
+        .output()?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(NscError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        )),
+    }
+}
+
 fn fetch_origin_main(repo_root: &Path) -> Result<()> {
     let output = Command::new("git")
         .args([
@@ -113,7 +127,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{create_worktree, prepare_default_base_ref};
+    use super::{create_worktree, origin_main_contains_commit, prepare_default_base_ref};
 
     #[test]
     fn prepare_default_base_ref_fetches_origin_main_without_moving_local_head() {
@@ -149,6 +163,31 @@ mod tests {
 
         assert_eq!(worktree_head, latest_origin_head);
         assert_ne!(worktree_head, local_head);
+    }
+
+    #[test]
+    fn origin_main_contains_commit_checks_remote_ancestry() {
+        let workspace = init_repo_with_origin();
+        let latest_origin_head = advance_origin_main(&workspace.source_repo, &workspace.clone_repo);
+        fs::write(workspace.clone_repo.join("LOCAL_ONLY.md"), "local").unwrap();
+        git_ok(&workspace.clone_repo, ["add", "LOCAL_ONLY.md"]);
+        git_ok(
+            &workspace.clone_repo,
+            [
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test User",
+                "commit",
+                "-m",
+                "local-only",
+            ],
+        );
+        let local_only_head = git_stdout(&workspace.clone_repo, ["rev-parse", "HEAD"]);
+        let _ = prepare_default_base_ref(&workspace.clone_repo).unwrap();
+
+        assert!(origin_main_contains_commit(&workspace.clone_repo, &latest_origin_head).unwrap());
+        assert!(!origin_main_contains_commit(&workspace.clone_repo, &local_only_head).unwrap());
     }
 
     struct RepoWorkspace {
