@@ -8,7 +8,7 @@ use crate::error::{NscError, Result};
 use crate::output::{OutputEvent, OutputSink};
 use crate::recovery::{RecoveryRecord, write_record};
 use crate::slice::{MAX_PARALLEL_SLICES, SliceCandidate, SliceStatus};
-use crate::worktree::{create_worktree, run_scope_now};
+use crate::worktree::{create_worktree, prepare_default_base_ref, run_scope_now};
 
 pub struct SupervisorOptions {
     pub repo_root: PathBuf,
@@ -49,6 +49,15 @@ pub async fn run(
         known_paths.insert(candidate.path.clone());
         pending.push_back(candidate);
     }
+    let base_ref = match prepare_default_base_ref(&options.repo_root) {
+        Ok(base_ref) => base_ref,
+        Err(err) => {
+            output.emit(OutputEvent::FatalStartupFailure {
+                message: &err.to_string(),
+            });
+            return Err(err);
+        }
+    };
 
     let total_slices = pending.len();
     let initial_labels = pending
@@ -69,7 +78,7 @@ pub async fn run(
         output,
         &mut pending,
         &mut running,
-        true,
+        &base_ref,
     )
     .await?;
 
@@ -100,7 +109,7 @@ pub async fn run(
             output,
             &mut pending,
             &mut running,
-            false,
+            &base_ref,
         )
         .await?;
     }
@@ -115,7 +124,7 @@ async fn launch_available(
     output: &mut dyn OutputSink,
     pending: &mut VecDeque<SliceCandidate>,
     running: &mut Vec<RunningSlice>,
-    _startup_phase: bool,
+    base_ref: &str,
 ) -> Result<()> {
     while running.len() < MAX_PARALLEL_SLICES {
         let Some(candidate) = pending.pop_front() else {
@@ -126,7 +135,8 @@ async fn launch_available(
             label: &candidate.label,
         });
 
-        let worktree_path = create_worktree(&options.repo_root, run_scope, &candidate.label)?;
+        let worktree_path =
+            create_worktree(&options.repo_root, run_scope, &candidate.label, base_ref)?;
         write_recovery(
             &options.repo_root,
             run_scope,
@@ -326,6 +336,8 @@ fn write_recovery(
 mod tests {
     use std::collections::VecDeque;
     use std::fs;
+    use std::path::Path;
+    use std::process::Command;
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -412,7 +424,7 @@ mod tests {
 
     #[tokio::test]
     async fn supervisor_processes_more_than_three_slices() {
-        let repo = init_git_repo();
+        let repo = init_git_repo_with_origin();
         let slice_dir = repo.path().join("slices");
         fs::create_dir_all(&slice_dir).unwrap();
         for idx in 1..=5 {
@@ -449,21 +461,14 @@ mod tests {
         );
     }
 
-    fn init_git_repo() -> TempDir {
+    fn init_git_repo_with_origin() -> TempDir {
         let temp = TempDir::new().unwrap();
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(temp.path())
-            .output()
-            .unwrap();
+        git_ok(temp.path(), ["init", "--initial-branch=main"]);
         fs::write(temp.path().join("README.md"), "test").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(temp.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
+        git_ok(temp.path(), ["add", "."]);
+        git_ok(
+            temp.path(),
+            [
                 "-c",
                 "user.email=test@example.com",
                 "-c",
@@ -471,10 +476,34 @@ mod tests {
                 "commit",
                 "-m",
                 "init",
-            ])
-            .current_dir(temp.path())
+            ],
+        );
+        let origin_path = temp.path().join("_origin.git");
+        fs::create_dir_all(&origin_path).unwrap();
+        git_ok(
+            &origin_path,
+            ["init", "--bare", "--initial-branch=main", "."],
+        );
+        git_ok(
+            temp.path(),
+            ["remote", "add", "origin", origin_path.to_str().unwrap()],
+        );
+        git_ok(temp.path(), ["push", "-u", "origin", "main"]);
+        temp
+    }
+
+    fn git_ok<const N: usize>(repo_root: &Path, args: [&str; N]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
             .output()
             .unwrap();
-        temp
+        assert!(
+            output.status.success(),
+            "git {:?} failed: stdout={}, stderr={}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

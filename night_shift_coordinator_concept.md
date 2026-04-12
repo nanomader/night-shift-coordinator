@@ -88,6 +88,8 @@ Recommended v1 CLI:
 ```text
 nsc run <slice-folder>
 nsc run <slice-folder> --prompt-template <path>
+nsc debug <slice-folder>
+nsc debug <slice-folder> --prompt-template <path>
 ```
 
 Simple rule:
@@ -96,7 +98,8 @@ Simple rule:
 - the slice folder is the primary required input
 - the slice folder must resolve inside that repository root in v1
 - prompt override is optional
-- do not add more top-level commands in v1
+- `debug` is the only extra top-level command in v1 and only changes output
+  verbosity
 
 ## Queueing
 
@@ -183,6 +186,9 @@ Prompt assembly should stay simple:
 - the built-in prompt may direct the worker through a bounded workflow such as:
   pre-plan checkpoint, `$plan-author-review-loop`,
   `$implementation-new-branch-pr`, and GitHub Codex review polling
+- the built-in prompt may merge the PR when the repo workflow allows it, but
+  only after a GitHub Codex review comment for the current PR head begins with
+  `Codex Review: Didn't find any major issues.`
 - do not inline slice contents into the prompt in v1
 - do not add extra prompt-generation logic in v1
 
@@ -199,11 +205,14 @@ Operator rule:
 
 For every running slice, NSC creates:
 
-- one separate git worktree
+- one separate git worktree from freshly fetched `origin/main`
 - one fresh Codex App Server thread
 
 One slice run maps to one thread.
 No thread reuse in v1.
+
+NSC should fetch `origin/main` before launching slices and create worktrees
+from that remote base without switching or mutating the user's main checkout.
 
 Recommended repo-local layout:
 

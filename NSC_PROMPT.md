@@ -9,7 +9,7 @@ Rules:
   workflow docs when they exist.
 - Do not select another slice.
 - Do not widen scope because nearby changes look convenient.
-- Do not merge as part of this run.
+- Do not merge before the GitHub Codex review gate described below is satisfied.
 - If the slice requires a missing architecture, product-policy, or repo-policy
   decision, stop and report that blocker clearly.
 
@@ -34,10 +34,17 @@ Workflow:
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head.
-9. If the review findings require wider scope, a new Day Shift decision, or
-   missing repo workflow support, stop and report that blocker instead of
-   improvising.
-10. End with one clear final message that reports:
+9. Merge gate:
+   - merge only after the current PR head has a GitHub Codex review comment that
+     begins with `Codex Review: Didn't find any major issues.`
+   - if that review state is present and the repo workflow allows merge, merge
+     the PR as part of this run
+   - if that review state is not yet present, stop and report manual follow-up
+     needed instead of guessing
+10. If the review findings require wider scope, a new Day Shift decision, or
+    missing repo workflow support, stop and report that blocker instead of
+    improvising.
+11. End with one clear final message that reports:
     - normal completion, or
     - blocker, or
     - stop condition, or
@@ -47,6 +54,7 @@ Final message expectations:
 
 - name the exact slice file
 - name the branch and PR when created
+- state whether the PR was merged
 - report the latest review state you reached
 - report the main validation result
 - report any blocker or follow-up plainly

@@ -15,7 +15,8 @@ It does:
 
 - discover slice markdown files in a batch folder
 - run up to 3 slices at a time
-- create one git worktree per running slice
+- fetch `origin/main` and create one git worktree per running slice from that
+  remote base
 - create one fresh Codex App Server thread per running slice
 - record minimal recovery breadcrumbs under `.nsc/`
 - print human-readable runtime updates to the terminal
@@ -113,6 +114,7 @@ Important rules:
 
 - the current working directory must be the target repo root
 - the slice folder must be inside that repository
+- NSC fetches `origin/main` and creates slice worktrees from that remote base
 - once NSC discovers a slice file for the current run, treat that file as
   immutable for that run
 
@@ -247,6 +249,7 @@ By default, NSC:
 - uses that built-in prompt
 - passes the assigned slice file path to Codex as a repo-relative path
 - tells the worker to read that exact slice file before acting
+- fetches `origin/main` and creates the slice worktree from that remote base
 - drives a single-slice workflow built around:
   - a repo-context pre-plan checkpoint
   - `$plan-author-review-loop`
@@ -258,8 +261,9 @@ You can replace the built-in prompt with `--prompt-template <path>`.
 Built-in prompt:
 
 - good when you want NSC to encourage a specific Night Shift execution style
-- assumes a single-slice flow with planning, implementation, PR creation, and
-  bounded review polling
+- assumes a single-slice flow with planning, implementation, PR creation,
+  bounded review polling, and merge only after a GitHub Codex review comment
+  begins with `Codex Review: Didn't find any major issues.`
 
 Custom prompt:
 
