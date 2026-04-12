@@ -94,6 +94,7 @@ Simple rule:
 
 - NSC runs from the target repository root
 - the slice folder is the primary required input
+- the slice folder must resolve inside that repository root in v1
 - prompt override is optional
 - do not add more top-level commands in v1
 
@@ -176,7 +177,7 @@ Rules:
 Prompt assembly should stay simple:
 
 - start with the built-in or overridden prompt template
-- pass the assigned slice file path to the worker
+- pass the assigned slice file path to the worker as a repo-relative path
 - instruct the worker to read that exact slice file before acting
 - do not inline slice contents into the prompt in v1
 - do not add extra prompt-generation logic in v1

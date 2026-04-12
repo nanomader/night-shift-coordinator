@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NscError, Result};
@@ -28,14 +29,7 @@ pub fn discover_startup_candidates(slice_dir: &Path) -> Result<Vec<SliceCandidat
         if !is_markdown_file(&path) {
             continue;
         }
-        let metadata = fs::metadata(&path).map_err(|source| NscError::PathIo {
-            path: path.clone(),
-            source,
-        })?;
-        if metadata.len() == 0 {
-            return Err(NscError::EmptySliceFile(path));
-        }
-        candidates.push(candidate_from_path(path)?);
+        candidates.push(validate_slice_file(path)?);
     }
     sort_candidates(&mut candidates);
     if candidates.is_empty() {
@@ -85,23 +79,39 @@ pub fn discover_new_candidates_on_rescan(
         if !is_markdown_file(&path) || known_paths.contains(&path) {
             continue;
         }
-        match fs::metadata(&path) {
-            Ok(metadata) if metadata.len() > 0 => match candidate_from_path(path.clone()) {
-                Ok(candidate) => outcome.new_candidates.push(candidate),
-                Err(err) => outcome.warnings.push(err.to_string()),
-            },
-            Ok(_) => outcome.warnings.push(format!(
+        match validate_slice_file(path.clone()) {
+            Ok(candidate) => outcome.new_candidates.push(candidate),
+            Err(NscError::EmptySliceFile(_)) => outcome.warnings.push(format!(
                 "ignoring empty slice file during rescan: {}",
                 path.display()
             )),
-            Err(err) => outcome.warnings.push(format!(
-                "ignoring unreadable slice file during rescan: {} ({err})",
+            Err(NscError::PathIo { source, .. }) => outcome.warnings.push(format!(
+                "ignoring unreadable slice file during rescan: {} ({source})",
                 path.display()
             )),
+            Err(err) => outcome.warnings.push(err.to_string()),
         }
     }
     sort_candidates(&mut outcome.new_candidates);
     outcome
+}
+
+fn validate_slice_file(path: PathBuf) -> Result<SliceCandidate> {
+    let mut file = fs::File::open(&path).map_err(|source| NscError::PathIo {
+        path: path.clone(),
+        source,
+    })?;
+    let mut first_byte = [0u8; 1];
+    let bytes_read = file
+        .read(&mut first_byte)
+        .map_err(|source| NscError::PathIo {
+            path: path.clone(),
+            source,
+        })?;
+    if bytes_read == 0 {
+        return Err(NscError::EmptySliceFile(path));
+    }
+    candidate_from_path(path)
 }
 
 fn candidate_from_path(path: PathBuf) -> Result<SliceCandidate> {

@@ -20,6 +20,11 @@ pub enum NscError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("slice folder is outside the repo root: repo={repo_root}, slice_folder={slice_folder}")]
+    SliceFolderOutsideRepo {
+        repo_root: PathBuf,
+        slice_folder: PathBuf,
+    },
     #[error("not running from repo root: expected {expected}, got {actual}")]
     NotRepoRoot { expected: PathBuf, actual: PathBuf },
     #[error("git command failed: {0}")]

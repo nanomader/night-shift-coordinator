@@ -136,7 +136,10 @@ async fn launch_available(
 
         let request = RunSliceRequest {
             worktree_path: worktree_path.clone(),
-            slice_file_path: candidate.path.clone(),
+            slice_repo_relative_path: repo_relative_slice_path(
+                &options.repo_root,
+                &candidate.path,
+            )?,
             prompt_template: options.prompt_template.clone(),
         };
         match client.start_run(request).await {
@@ -182,6 +185,19 @@ async fn launch_available(
     }
 
     Ok(())
+}
+
+fn repo_relative_slice_path(repo_root: &Path, slice_path: &Path) -> Result<PathBuf> {
+    slice_path
+        .strip_prefix(repo_root)
+        .map(Path::to_path_buf)
+        .map_err(|_| {
+            NscError::Protocol(format!(
+                "slice path is outside repo root: repo={}, slice={}",
+                repo_root.display(),
+                slice_path.display()
+            ))
+        })
 }
 
 async fn wait_for_one(running: &mut [RunningSlice]) -> Result<(usize, Result<TerminalRunOutcome>)> {
