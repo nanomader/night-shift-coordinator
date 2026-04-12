@@ -25,6 +25,11 @@ The mode should let one operator point NSC at the parent root and trust NSC to:
 - stop before the next child directory if the current one did not land
   successfully enough
 
+Boundary sentence:
+
+**NSC executes prepared Night Shift work. It does not prepare, repair, or
+reinterpret that work.**
+
 ## Current Gap
 
 Current NSC behavior supports only:
@@ -153,6 +158,10 @@ For `--schedule wave-dirs` mode in v1:
 - discover the full set of immediate child wave-dirs once at startup
 - do not admit newly added sibling wave-dirs mid-run
 - discover slice files inside each child wave-dir when that wave-dir begins
+- require the prepared wave-root and slice files to already exist in the
+  repository state NSC executes from
+- do not copy slice files into worktrees to compensate for incomplete prepared
+  input
 
 This keeps ordered execution deterministic.
 

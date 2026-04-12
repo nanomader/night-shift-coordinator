@@ -40,6 +40,7 @@ NSC owns:
 
 - discovering slice markdown files in a batch folder
 - discovering ordered child wave-dirs when explicit scheduling mode requests it
+- validating prepared execution input early
 - launching up to 3 slice runs at a time
 - creating one worktree per running slice
 - creating one fresh Codex App Server thread per running slice
@@ -68,6 +69,11 @@ NSC runs them.
 The prompt and the repository workflow own everything beyond runtime
 supervision.
 
+Product boundary sentence:
+
+**NSC executes prepared Night Shift work. It does not prepare, repair, or
+reinterpret that work.**
+
 ## Batch Model
 
 NSC v1 uses a very small execution model.
@@ -81,6 +87,9 @@ NSC v1 uses a very small execution model.
 If true execution order matters, the user should split the work into separate
 batches or use the explicit `wave-dirs` scheduling mode.
 NSC v1 does not infer dependency graphs or overlap rules.
+
+Flat-batch membership is static for one run.
+NSC does not admit newly added slice files after the run starts in v1.
 
 Explicit ordered-root scheduling policy:
 
@@ -130,25 +139,6 @@ It is not dependency semantics.
 
 For v1, deterministic filename order means lexicographic filename sorting.
 
-## Dynamic Batch Growth
-
-NSC v1 should allow the user to add more slice markdown files while NSC is
-already running.
-
-Simple rule:
-
-- NSC rescans the batch folder at simple checkpoints
-- newly discovered `*.md` files are added to the queue
-- no filesystem watcher is required in v1
-
-Recommended checkpoints:
-
-- once at startup
-- whenever a slot frees up
-
-This keeps the system simple while supporting the "add more wood to the fire"
-workflow.
-
 ## Slice Input
 
 NSC v1 keeps slice input intentionally light.
@@ -167,18 +157,23 @@ Recommended minimum validity rule:
 - a discoverable slice candidate is any non-empty `*.md` file outside `.nsc/`
 - launch admission may still reject a discovered candidate before start
 - unreadable or empty slice files should fail the initial startup scan
-- malformed files discovered later should warn and be ignored until fixed
+- NSC should not compensate for incomplete or local-only prepared input
 
 Startup rule:
 
 - if the initial slice-folder scan finds unreadable or empty slice files, NSC
   should fail before launching anything
+- flat-batch membership should be frozen from that startup scan
+- for `wave-dirs`, sibling wave-dirs should be frozen at startup and slice
+  membership should be frozen when each wave-dir begins
 
-Mid-run rule:
+Execution-truth rule:
 
-- if a later rescan finds unreadable, empty, or otherwise malformed new slice
-  files, NSC should warn and ignore those files until they are fixed
-- already running slices should continue
+- a discovered slice file is launchable only if it also exists on the exact
+  repository state NSC is executing from
+- missing-on-base slice files are validation failures, not runtime surprises
+- NSC should not copy slice files into worktrees to compensate for incomplete
+  prepared input
 
 ## Prompt Model
 
@@ -196,6 +191,8 @@ Prompt assembly should stay simple:
 - start with the built-in or overridden prompt template
 - pass the assigned slice file path to the worker as a repo-relative path
 - instruct the worker to read that exact slice file before acting
+- require prepared slice files to already exist in the repository state NSC is
+  executing from
 - keep the built-in prompt single-slice and repo-agnostic
 - the built-in prompt may direct the worker through a bounded workflow such as:
   pre-plan checkpoint, `$plan-author-review-loop`,
@@ -218,7 +215,7 @@ Operator rule:
 
 - once a slice has been discovered for the current run, that slice file should
   be treated as immutable for that run
-- new slice files may be added while NSC is running
+- NSC should not rely on late local file injection to change the active run
 - existing queued or running slice files should not be edited in place
 
 ## Worktree and Thread Model
@@ -233,6 +230,16 @@ No thread reuse in v1.
 
 NSC should fetch `origin/main` before launching slices and create worktrees
 from that remote base without switching or mutating the user's main checkout.
+
+Base-freezing rule:
+
+- NSC should force-refresh the local `origin/main` tracking ref from remote
+  truth before resolving a base
+- flat mode should resolve one exact commit SHA for the whole run and create all
+  flat-batch worktrees from that SHA
+- `wave-dirs` mode should resolve one exact commit SHA per wave-dir and create
+  all worktrees in that wave-dir from that SHA
+- NSC should validate slice existence against that resolved SHA before launch
 
 Recommended repo-local layout:
 
@@ -249,8 +256,17 @@ Recommended repo-local layout:
 This keeps the runtime state inspectable without building a larger persistence
 system.
 
-`run_scope` should be a simple local timestamp string such as
-`20260412-220501`.
+`run_scope` should be collision-resistant.
+
+Recommended shape:
+
+- local timestamp
+- milliseconds
+- process id
+
+Example:
+
+- `20260412-220501-127-48129`
 
 ## Runtime States
 
@@ -360,8 +376,13 @@ Recommended printed event set:
 - slice starting
 - slice finished normally
 - slice needs attention
-- new slice discovered
 - fatal startup failure
+- run stopped
+
+Output rule:
+
+- `Fatal startup failure` is only for failures before any slice launches
+- `Run stopped` is for later internal failures after startup already succeeded
 
 Example shape:
 
@@ -376,8 +397,6 @@ Starting 3 slices: 01_auth_cleanup, 02_docs_pass, 03_runner_fix
 [02_docs_pass] needs attention
   thread_id: abc123
   worktree: .nsc/worktrees/20260412-220501/02_docs_pass
-
-Discovered new slice: 10_followup_cleanup.md
 ```
 
 ## Distribution
@@ -414,10 +433,10 @@ runtime contracts.
 - startup with more than 3 slices
 - queueing the remainder after the first 3 launches
 - launching the next slice when a slot frees up
-- discovering newly added slice files on rescan
-- ignoring malformed newly added slice files while continuing existing runs
 - writing usable recovery breadcrumbs for manual recovery
 - classifying normal completion versus attention-needed outcomes
+- freezing flat-batch membership after startup
+- freezing active wave-dir membership once that wave starts
 
 ### Test boundaries for v1
 
