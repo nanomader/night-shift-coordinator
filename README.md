@@ -1,20 +1,20 @@
 # Night Shift Coordinator
 
 Night Shift Coordinator, abbreviated `NSC`, is a local Rust CLI for supervising
-parallel Night Shift slice execution.
+Night Shift slice execution.
 
 It solves one concrete problem: long Night Shift runs can stop or hang while no
-human is watching. NSC runs several prepared slices in separate worktrees and
-surfaces which runs finished normally and which runs need attention.
+human is watching. NSC runs prepared slices in separate worktrees and surfaces
+which runs finished normally and which runs need attention.
 
 ## What NSC Is
 
-NSC is a parallel execution supervisor.
+NSC is an execution supervisor for prepared Night Shift work.
 
 It does:
 
 - discover slice markdown files in a batch folder
-- run up to 3 slices at a time
+- run up to 3 slices at a time when the batch is parallel-safe
 - support one explicit ordered-root mode with `--schedule wave-dirs`
 - fetch `origin/main` and create one git worktree per running slice from that
   remote base
@@ -31,28 +31,99 @@ It does not:
 - manage review or merge policy
 - resume or restart a previous NSC run
 
-## How It Works
+## Quick Start
 
-The v1 model is intentionally small:
+Install locally from this repository:
+
+```bash
+cargo install --path . --force
+```
+
+Run NSC from the root of the target repository:
+
+```bash
+nsc run <slice-folder>
+```
+
+Use debug mode when you want live per-slice lifecycle lines:
+
+```bash
+nsc debug <slice-folder>
+```
+
+Use ordered wave-dirs mode when Day Shift already prepared one parent folder of
+ordered child batches:
+
+```bash
+nsc run <wave-root> --schedule wave-dirs
+```
+
+## Scheduling Modes
+
+NSC has two execution modes.
+
+### 1. Flat Batch Mode
+
+Command:
+
+```bash
+nsc run <slice-folder>
+```
+
+Contract:
 
 - one batch = one folder
 - one slice = one markdown file
 - every non-empty `*.md` file in that folder is treated as a slice candidate
-- the batch is assumed to already contain only slices that are safe to run in
-  parallel
+- the folder is assumed to contain only slices that are safe to run in parallel
+- NSC runs up to 3 slices at a time
+- if there are more than 3 slice files, NSC queues them in lexicographic
+  filename order
+- when a slot frees up, NSC rescans the folder and can admit new slice files
 
-If there are more than 3 slice files, NSC queues them in lexicographic filename
-order.
+Example:
 
-When a slot frees up, NSC rescans the folder. That means you can add more slice
-files while NSC is already running.
+```text
+slices/
+  01_readme_cleanup.md
+  02_cli_examples.md
+  03_release_notes.md
+```
 
-For prepared ordered work, NSC also supports:
+### 2. Ordered Wave-Dirs Mode
 
-- `nsc run <wave-root> --schedule wave-dirs`
-- immediate child `batchNN_*` directories as ordered wave boundaries
-- current flat-batch behavior inside one child wave-dir
-- `origin/main` refresh and merged-success verification between child wave-dirs
+Command:
+
+```bash
+nsc run <wave-root> --schedule wave-dirs
+```
+
+Contract:
+
+- the supplied folder is a wave root
+- each immediate child directory is one wave-dir
+- wave-dir names must match `batchNN_name`
+- numbering must be contiguous inside the root
+- sibling wave-dirs run one at a time in numeric order
+- slices inside one wave-dir still use current flat-batch behavior
+- NSC fetches `origin/main` before each next wave-dir
+- NSC unlocks the next wave-dir only after every slice in the current wave-dir
+  reports merged success and the reported merge SHA verifies on fetched
+  `origin/main`
+- wave-root contents are frozen at startup in this mode
+
+Example:
+
+```text
+repo_materials/night_shift_batches/validation_entrypoint_wave2_php/
+  README.md
+  batch02_php_vendor_bin_phpunit/
+    01_vendor_bin_phpunit.md
+  batch03_composer_test_phpunit/
+    01_composer_test_phpunit.md
+  batch04_composer_phpunit_phpunit/
+    01_composer_phpunit_phpunit.md
+```
 
 ## Requirements
 
@@ -97,28 +168,23 @@ cargo build --release
 ./target/release/nsc --help
 ```
 
-## Usage
+## CLI Usage
 
-Run NSC from the root of the target repository:
+Default commands:
 
 ```bash
 nsc run <slice-folder>
-```
-
-Run the same batch with extra lifecycle output:
-
-```bash
 nsc debug <slice-folder>
 ```
 
-Optional prompt override:
+With prompt override:
 
 ```bash
 nsc run <slice-folder> --prompt-template <path>
 nsc debug <slice-folder> --prompt-template <path>
 ```
 
-Ordered-root mode:
+With ordered wave-dirs scheduling:
 
 ```bash
 nsc run <wave-root> --schedule wave-dirs
@@ -136,17 +202,15 @@ Important rules:
 Wave-dirs mode rules:
 
 - immediate child wave directories must match `batchNN_name`
-- numbering must be contiguous inside the supplied root
 - `README.md` and hidden entries are allowed in the root
 - any other root-level non-directory entry fails fast
 - sibling wave-dirs are discovered once at startup in this mode
-- NSC unlocks the next wave-dir only after every slice in the current wave-dir
-  reports merged success and the reported merge SHAs verify on fetched
-  `origin/main`
 
 ## Real-Life Flow
 
 Typical operator flow:
+
+### Flat Batch Flow
 
 1. prepare a target repo with a folder of slice markdown files
 2. make sure the files in that folder are safe to run in parallel
@@ -179,6 +243,21 @@ $EDITOR slices/05_release_notes.md
 
 NSC will discover those files when a slot frees up and add them to the queue.
 
+### Ordered Wave-Dirs Flow
+
+1. prepare one root directory whose immediate child directories are ordered
+   wave-dirs such as `batch02_*`, `batch03_*`, `batch04_*`
+2. make sure slices inside one child directory are safe to run, review, and
+   land from the same fetched `origin/main` base
+3. run `nsc run <wave-root> --schedule wave-dirs`
+4. NSC runs the first child wave-dir only
+5. after that wave-dir finishes, NSC fetches `origin/main` and verifies the
+   reported merged SHA for every slice in that wave-dir
+6. NSC starts the next child wave-dir only if the previous one landed
+   successfully enough
+7. if one wave-dir stops with blocker, manual follow-up, missing marker, or bad
+   merge verification, NSC stops and does not continue to the next sibling
+
 ## Slice Files
 
 NSC v1 keeps slice input light.
@@ -203,7 +282,8 @@ Recommended practice:
 - use one file per slice
 - give files stable numeric prefixes when queue order matters
 - put only mutually parallel-safe slices in one batch folder
-- split dependent work into separate batches
+- use `--schedule wave-dirs` when you already have prepared ordered child
+  batches
 
 ## Slice Template
 
@@ -255,7 +335,7 @@ not belong in the same NSC v1 run. Split them into separate batches.
 NSC does not manage dependencies in v1. If a batch is unsafe, that is a slice
 preparation problem, not something NSC will fix at runtime.
 
-For prepared ordered work such as GoalCoder wave queues, use
+For prepared ordered work such as GoalCoder wave queues, use one wave root plus
 `--schedule wave-dirs` instead of flattening dependent slices into one
 parallel-safe batch.
 
@@ -303,13 +383,20 @@ Custom prompt:
 - still runs under the same NSC runtime model
 - does not change what NSC supervises or what NSC ignores
 
-In `--schedule wave-dirs` mode, the prompt must emit exact machine-readable
-final lines such as:
+Required machine-readable lines for merged success:
 
 ```text
 NSC_RESULT: MERGED_SUCCESS
 NSC_MERGED_MAIN_SHA: <40-hex-sha>
 NSC_PR: <number>
+```
+
+Common non-success lines:
+
+```text
+NSC_RESULT: MANUAL_FOLLOWUP
+NSC_RESULT: BLOCKED
+NSC_RESULT: STOPPED
 ```
 
 The built-in prompt satisfies that contract. A custom prompt used with
@@ -340,6 +427,23 @@ Starting 3 slices: 01_auth_cleanup, 02_docs_pass, 03_runner_fix
   worktree: /repo/.nsc/worktrees/20260412-220501/02_docs_pass
 ```
 
+Wave-dirs example:
+
+```text
+Night Shift Coordinator v0.1.0
+
+Found 3 wave-dirs in root
+
+Starting wave-dir 1/3: batch02_php_vendor_bin_phpunit
+Found 1 slices in folder
+Starting 1 slices: 01_vendor_bin_phpunit
+
+[01_vendor_bin_phpunit] finished normally
+  final_message: ...
+Wave-dir 1/3 finished: batch02_php_vendor_bin_phpunit (MERGED_SUCCESS)
+Starting wave-dir 2/3: batch03_composer_test_phpunit
+```
+
 Debug example:
 
 ```text
@@ -363,6 +467,8 @@ Meaning of the main runtime lines:
   launch, runtime, protocol, or timeout handling did not complete normally
 - `Discovered new slice`:
   NSC found a new markdown file during rescan and added it to the queue
+- `Starting wave-dir` / `Wave-dir finished` / `Wave-dir stopped`:
+  ordered wave-dirs progress in `--schedule wave-dirs` mode
 - `Fatal startup failure`:
   NSC rejected the initial batch before launching anything
 - `starting`, `running`, `still running`:
@@ -431,6 +537,18 @@ Result:
 - active slice runs continue when possible
 - the affected slice is marked as needing attention when runtime handling fails
 
+Wave-dirs problems:
+
+- malformed child directory name
+- numbering gap such as `batch02_*` followed by `batch04_*`
+- unexpected root-level file besides `README.md` or hidden entries
+- missing `NSC_RESULT` markers in final prompt output
+- reported merge SHA not found on fetched `origin/main`
+
+Result:
+
+- NSC stops before the next sibling wave-dir starts
+
 ## Current v1 Limits
 
 NSC v1 is intentionally narrow:
@@ -447,6 +565,7 @@ NSC also does not:
 
 - decide whether your slice plan is good
 - resolve dependency order for you
+- infer wave structure from arbitrary folder names
 - judge whether the implementation was semantically correct
 - replace repo-specific workflow rules
 
