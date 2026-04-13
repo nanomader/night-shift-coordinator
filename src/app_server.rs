@@ -12,6 +12,9 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::error::{NscError, Result};
 
+pub const DEFAULT_MODEL: &str = "gpt-5.4";
+pub const DEFAULT_REASONING_EFFORT: &str = "medium";
+
 #[derive(Debug, Clone)]
 pub struct RunSliceRequest {
     pub worktree_path: PathBuf,
@@ -77,6 +80,32 @@ fn build_prompt_text(request: &RunSliceRequest) -> String {
         template = request.prompt_template.trim_end(),
         slice_path = request.slice_repo_relative_path.display(),
     )
+}
+
+fn thread_start_params(cwd: String) -> Value {
+    json!({
+        "approvalPolicy": "never",
+        "cwd": cwd,
+        "ephemeral": true,
+        "model": DEFAULT_MODEL,
+        "serviceName": "Night Shift Coordinator",
+    })
+}
+
+fn turn_start_params(cwd: String, thread_id: String, prompt_text: String) -> Value {
+    json!({
+        "approvalPolicy": "never",
+        "cwd": cwd,
+        "effort": DEFAULT_REASONING_EFFORT,
+        "input": [
+            {
+                "type": "text",
+                "text": prompt_text,
+            }
+        ],
+        "model": DEFAULT_MODEL,
+        "threadId": thread_id,
+    })
 }
 
 const MAX_RUN_DURATION: Duration = Duration::from_secs(8 * 60 * 60);
@@ -169,15 +198,7 @@ impl Session {
     async fn start_thread(&mut self) -> Result<String> {
         let cwd = self.cwd_string()?;
         let response = self
-            .send_request(
-                "thread/start",
-                json!({
-                    "approvalPolicy": "never",
-                    "cwd": cwd,
-                    "ephemeral": true,
-                    "serviceName": "Night Shift Coordinator",
-                }),
-            )
+            .send_request("thread/start", thread_start_params(cwd))
             .await?;
         let thread_id = response
             .get("thread")
@@ -193,24 +214,12 @@ impl Session {
 
     async fn start_turn(&mut self, prompt_text: String) -> Result<String> {
         let cwd = self.cwd_string()?;
+        let thread_id = self
+            .thread_id
+            .clone()
+            .ok_or_else(|| self.protocol_error("thread id unavailable before turn/start"))?;
         let response = self
-            .send_request(
-                "turn/start",
-                json!({
-                    "approvalPolicy": "never",
-                    "cwd": cwd,
-                    "input": [
-                        {
-                            "type": "text",
-                            "text": prompt_text,
-                        }
-                    ],
-                    "threadId": self
-                        .thread_id
-                        .clone()
-                        .ok_or_else(|| self.protocol_error("thread id unavailable before turn/start"))?,
-                }),
-            )
+            .send_request("turn/start", turn_start_params(cwd, thread_id, prompt_text))
             .await?;
         let turn_id = response
             .get("turn")
@@ -566,8 +575,9 @@ mod tests {
     use tokio::time::sleep;
 
     use super::{
-        RunSliceRequest, TerminalRunOutcome, apply_run_timeout, build_prompt_text,
-        canonical_terminal_message,
+        DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, RunSliceRequest, TerminalRunOutcome,
+        apply_run_timeout, build_prompt_text, canonical_terminal_message, thread_start_params,
+        turn_start_params,
     };
 
     #[test]
@@ -609,7 +619,7 @@ mod tests {
     #[test]
     fn build_prompt_text_uses_repo_relative_slice_path() {
         let request = RunSliceRequest {
-            worktree_path: PathBuf::from("/tmp/worktree"),
+            worktree_path: PathBuf::from("worktree"),
             slice_repo_relative_path: PathBuf::from("slices/01_slice.md"),
             prompt_template: "Prompt body".to_string(),
         };
@@ -617,6 +627,48 @@ mod tests {
         let text = build_prompt_text(&request);
 
         assert!(text.contains("slices/01_slice.md"));
+    }
+
+    #[test]
+    fn thread_start_params_include_default_model() {
+        let params = thread_start_params("worktree".to_string());
+
+        assert_eq!(
+            params,
+            json!({
+                "approvalPolicy": "never",
+                "cwd": "worktree",
+                "ephemeral": true,
+                "model": DEFAULT_MODEL,
+                "serviceName": "Night Shift Coordinator",
+            })
+        );
+    }
+
+    #[test]
+    fn turn_start_params_include_default_model_and_effort() {
+        let params = turn_start_params(
+            "worktree".to_string(),
+            "thread-123".to_string(),
+            "prompt text".to_string(),
+        );
+
+        assert_eq!(
+            params,
+            json!({
+                "approvalPolicy": "never",
+                "cwd": "worktree",
+                "effort": DEFAULT_REASONING_EFFORT,
+                "input": [
+                    {
+                        "type": "text",
+                        "text": "prompt text",
+                    }
+                ],
+                "model": DEFAULT_MODEL,
+                "threadId": "thread-123",
+            })
+        );
     }
 
     #[tokio::test]

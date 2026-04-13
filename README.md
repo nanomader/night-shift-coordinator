@@ -382,6 +382,8 @@ NSC ships with a built-in single-slice prompt in `NSC_PROMPT.md`.
 By default, NSC:
 
 - uses that built-in prompt
+- starts Codex App Server turns with model `gpt-5.4`
+- sets reasoning effort to `medium`
 - passes the assigned slice file path to Codex as a repo-relative path
 - tells the worker to read that exact slice file before acting
 - fetches `origin/main` and creates the slice worktree from that remote base
