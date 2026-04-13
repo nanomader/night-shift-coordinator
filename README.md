@@ -62,6 +62,45 @@ ordered child batches:
 nsc run <wave-root> --schedule wave-dirs
 ```
 
+## Two Common Flows
+
+### Parallel-safe flat batch
+
+Use this when one folder contains slices that are already safe to run together.
+
+1. prepare one folder of slice markdown files
+2. commit and push that prepared folder to `origin/main`
+3. run `nsc run <slice-folder>` from the target repo root
+4. NSC freezes that batch at startup and runs up to 3 slices at a time
+
+Minimal example:
+
+```bash
+git add slices/
+git commit -m "Prepare Night Shift slices"
+git push origin main
+nsc run slices/
+```
+
+### Ordered wave-dirs batch
+
+Use this when later work must wait until earlier prepared batches land on
+`main`.
+
+1. prepare one wave root whose immediate child directories are `batchNN_name`
+2. commit and push that prepared wave root to `origin/main`
+3. run `nsc run <wave-root> --schedule wave-dirs`
+4. NSC runs one child wave-dir at a time and stops on the first non-success
+
+Minimal example:
+
+```bash
+git add repo_materials/night_shift_batches/
+git commit -m "Prepare ordered Night Shift wave dirs"
+git push origin main
+nsc run repo_materials/night_shift_batches/validation_entrypoint_wave2_php/ --schedule wave-dirs
+```
+
 ## Scheduling Modes
 
 NSC has two execution modes.
