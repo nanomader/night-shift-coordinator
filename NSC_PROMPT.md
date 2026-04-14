@@ -30,17 +30,22 @@ Workflow:
    and post the required head-scoped `@codex review` request.
 7. After that PR exists, poll the GitHub Codex review outcome for the current
    PR head. If available in the environment, use `$pr-codex-review-poll`.
+   Poll every 60 seconds for up to 20 minutes total before giving up on the
+   current PR head review gate.
 8. If the review reports findings above LOW that clearly stay inside the same
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
-   the new head.
+   the new head. For that new PR head, apply the same review-polling policy:
+   every 60 seconds for up to 20 minutes total before giving up.
 9. Merge gate:
    - merge only after the current PR head has a GitHub Codex review comment that
      begins with `Codex Review: Didn't find any major issues.`
    - if that review state is present and the repo workflow allows merge, merge
      the PR as part of this run
-   - if that review state is not yet present, stop and report manual follow-up
-     needed instead of guessing
+   - if the review is still pending or the clean no-findings comment is not yet
+     present, keep polling inside the 20-minute window instead of stopping early
+   - only after the full 20-minute window expires without the required clean
+     comment, stop and report manual follow-up needed instead of guessing
 10. If the review findings require wider scope, a new Day Shift decision, or
     missing repo workflow support, stop and report that blocker instead of
     improvising.
@@ -70,6 +75,11 @@ Final message expectations:
 - report the latest review state you reached
 - report the main validation result
 - report any blocker or follow-up plainly
+- if manual follow-up is caused by exhausted review waiting, also report:
+  - total wait time used
+  - last poll status
+  - PR number
+  - current PR head SHA
 - keep the `NSC_RESULT` lines as exact standalone lines so NSC can parse them
   deterministically
 
