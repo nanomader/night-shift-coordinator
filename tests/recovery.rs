@@ -14,6 +14,7 @@ fn writes_fixed_recovery_json_shape() {
         thread_id: Some("thread-123".to_string()),
         status: SliceStatus::Running,
         progress: Some(ProgressPhase::Implementing),
+        progress_updated_at: Some("2026-04-14T20:00:00Z".to_string()),
     };
 
     let path = write_record(temp.path(), "run", "01_slice", &record).unwrap();
@@ -28,7 +29,8 @@ fn writes_fixed_recovery_json_shape() {
             "worktree_path": ".nsc/worktrees/run/01_slice",
             "thread_id": "thread-123",
             "status": "running",
-            "progress": "implementing"
+            "progress": "implementing",
+            "progress_updated_at": "2026-04-14T20:00:00Z"
         })
     );
 }

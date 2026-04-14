@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::terminal_result::ProgressPhase;
+use crate::terminal_result::{DebugEvent, ProgressPhase};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -48,6 +48,10 @@ pub enum OutputEvent<'a> {
     SliceProgress {
         label: &'a str,
         phase: ProgressPhase,
+    },
+    SliceWorkflowEvent {
+        label: &'a str,
+        event: DebugEvent,
     },
     SliceNeedsAttention {
         label: &'a str,
@@ -190,6 +194,11 @@ fn render_event_lines(
                 ));
             }
         }
+        OutputEvent::SliceWorkflowEvent { label, event } => {
+            if mode == OutputMode::Debug {
+                stdout_lines.push(format!("[{label}] event: {}", event.as_display_str()));
+            }
+        }
         OutputEvent::SliceNeedsAttention {
             label,
             thread_id,
@@ -225,7 +234,7 @@ fn render_event_lines(
 mod tests {
     use std::path::Path;
 
-    use crate::terminal_result::ProgressPhase;
+    use crate::terminal_result::{DebugEvent, ProgressPhase};
 
     use super::{OutputEvent, OutputMode, render_event_lines};
 
@@ -253,10 +262,19 @@ mod tests {
                 phase: ProgressPhase::Planning,
             },
         );
+        let event = render_event_lines(
+            OutputMode::Normal,
+            false,
+            OutputEvent::SliceWorkflowEvent {
+                label: "01_slice",
+                event: DebugEvent::ReviewPollingStarted,
+            },
+        );
 
         assert!(starting.is_none());
         assert!(running.is_none());
         assert!(phase.is_none());
+        assert!(event.is_none());
     }
 
     #[test]
@@ -286,6 +304,15 @@ mod tests {
             },
         )
         .unwrap();
+        let event = render_event_lines(
+            OutputMode::Debug,
+            false,
+            OutputEvent::SliceWorkflowEvent {
+                label: "01_slice",
+                event: DebugEvent::ReviewRetryPosted,
+            },
+        )
+        .unwrap();
 
         assert_eq!(starting.0, vec!["[01_slice] starting".to_string()]);
         assert_eq!(
@@ -299,6 +326,10 @@ mod tests {
         assert_eq!(
             phase.0,
             vec!["[01_slice] phase: waiting for review".to_string()]
+        );
+        assert_eq!(
+            event.0,
+            vec!["[01_slice] event: review retry posted".to_string()]
         );
     }
 

@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use night_shift_coordinator::app_server::{
-    AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome,
+    AppServerClient, RunSliceRequest, RunUpdate, StartedRun, TerminalRunOutcome,
 };
 use night_shift_coordinator::cli::ScheduleMode;
 use night_shift_coordinator::error::Result;
 use night_shift_coordinator::output::{OutputEvent, OutputSink};
 use night_shift_coordinator::supervisor::{SupervisorOptions, run};
-use night_shift_coordinator::terminal_result::ProgressPhase;
+use night_shift_coordinator::terminal_result::{DebugEvent, ProgressPhase};
 use tempfile::TempDir;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::LocalSet;
@@ -56,6 +56,9 @@ impl OutputSink for RecordingOutput {
             OutputEvent::SliceProgress { label, phase } => {
                 format!("phase:{label}:{}", phase.as_display_str())
             }
+            OutputEvent::SliceWorkflowEvent { label, event } => {
+                format!("event:{label}:{}", event.as_display_str())
+            }
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
@@ -82,10 +85,10 @@ impl AppServerClient for ImmediateClient {
     async fn start_run(&self, _request: RunSliceRequest) -> Result<StartedRun> {
         self.start_count.fetch_add(1, Ordering::SeqCst);
         let (_tx, rx) = oneshot::channel();
-        let (_progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let (_updates_tx, updates_rx) = mpsc::unbounded_channel::<RunUpdate>();
         Ok(StartedRun {
             thread_id: "thread-unused".to_string(),
-            progress_updates: progress_rx,
+            updates: updates_rx,
             completion: rx,
         })
     }
@@ -94,7 +97,7 @@ impl AppServerClient for ImmediateClient {
 struct ControlledClient {
     start_count: Arc<AtomicUsize>,
     completions: Arc<Mutex<Vec<oneshot::Sender<Result<TerminalRunOutcome>>>>>,
-    progress_senders: Arc<Mutex<Vec<mpsc::UnboundedSender<ProgressPhase>>>>,
+    update_senders: Arc<Mutex<Vec<mpsc::UnboundedSender<RunUpdate>>>>,
     worktree_paths: Arc<Mutex<Vec<std::path::PathBuf>>>,
 }
 
@@ -103,7 +106,7 @@ impl ControlledClient {
         Self {
             start_count: Arc::new(AtomicUsize::new(0)),
             completions: Arc::new(Mutex::new(Vec::new())),
-            progress_senders: Arc::new(Mutex::new(Vec::new())),
+            update_senders: Arc::new(Mutex::new(Vec::new())),
             worktree_paths: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -114,8 +117,13 @@ impl ControlledClient {
     }
 
     fn send_progress(&self, phase: ProgressPhase) {
-        let sender = self.progress_senders.lock().unwrap()[0].clone();
-        let _ = sender.send(phase);
+        let sender = self.update_senders.lock().unwrap()[0].clone();
+        let _ = sender.send(RunUpdate::Progress(phase));
+    }
+
+    fn send_event(&self, event: DebugEvent) {
+        let sender = self.update_senders.lock().unwrap()[0].clone();
+        let _ = sender.send(RunUpdate::Event(event));
     }
 }
 
@@ -124,16 +132,16 @@ impl AppServerClient for ControlledClient {
     async fn start_run(&self, request: RunSliceRequest) -> Result<StartedRun> {
         let run_id = self.start_count.fetch_add(1, Ordering::SeqCst) + 1;
         let (tx, rx) = oneshot::channel();
-        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let (updates_tx, updates_rx) = mpsc::unbounded_channel();
         self.completions.lock().unwrap().push(tx);
-        self.progress_senders.lock().unwrap().push(progress_tx);
+        self.update_senders.lock().unwrap().push(updates_tx);
         self.worktree_paths
             .lock()
             .unwrap()
             .push(request.worktree_path);
         Ok(StartedRun {
             thread_id: format!("thread-{run_id}"),
-            progress_updates: progress_rx,
+            updates: updates_rx,
             completion: rx,
         })
     }
@@ -310,6 +318,7 @@ async fn progress_markers_update_debug_output_and_recovery() {
             wait_for(|| start_count.load(Ordering::SeqCst) == 1).await;
             client.send_progress(ProgressPhase::Planning);
             client.send_progress(ProgressPhase::Planning);
+            client.send_event(DebugEvent::ReviewPollingStarted);
             client.send_progress(ProgressPhase::WaitingForReview);
             wait_for(|| {
                 output
@@ -317,7 +326,7 @@ async fn progress_markers_update_debug_output_and_recovery() {
                     .lock()
                     .unwrap()
                     .iter()
-                    .any(|line| line == "phase:01_first:waiting_for_review")
+                    .any(|line| line == "event:01_first:review polling started")
             })
             .await;
 
@@ -329,6 +338,11 @@ async fn progress_markers_update_debug_output_and_recovery() {
 
             let lines = output.lines.lock().unwrap().clone();
             assert!(lines.iter().any(|line| line == "phase:01_first:planning"));
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line == "event:01_first:review polling started")
+            );
             assert!(
                 lines
                     .iter()
@@ -370,6 +384,7 @@ async fn progress_markers_update_debug_output_and_recovery() {
         value.get("progress"),
         Some(&serde_json::json!("waiting_for_review"))
     );
+    assert!(value.get("progress_updated_at").is_some());
     assert_eq!(
         value.get("status"),
         Some(&serde_json::json!("finished_prompt_owned"))

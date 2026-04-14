@@ -13,16 +13,6 @@ pub enum ProgressPhase {
 }
 
 impl ProgressPhase {
-    pub fn as_marker_str(self) -> &'static str {
-        match self {
-            Self::Planning => "PLANNING",
-            Self::Implementing => "IMPLEMENTING",
-            Self::WaitingForReview => "WAITING_FOR_REVIEW",
-            Self::FixingReviewFindings => "FIXING_REVIEW_FINDINGS",
-            Self::WaitingForMerge => "WAITING_FOR_MERGE",
-        }
-    }
-
     pub fn as_display_str(self) -> &'static str {
         match self {
             Self::Planning => "planning",
@@ -30,6 +20,26 @@ impl ProgressPhase {
             Self::WaitingForReview => "waiting_for_review",
             Self::FixingReviewFindings => "fixing_review_findings",
             Self::WaitingForMerge => "waiting_for_merge",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DebugEvent {
+    ReviewPollingStarted,
+    ReviewRetryPosted,
+    FollowupPushed,
+    MergeStarted,
+}
+
+impl DebugEvent {
+    pub fn as_display_str(self) -> &'static str {
+        match self {
+            Self::ReviewPollingStarted => "review polling started",
+            Self::ReviewRetryPosted => "review retry posted",
+            Self::FollowupPushed => "follow-up fixes pushed",
+            Self::MergeStarted => "merge started",
         }
     }
 }
@@ -73,6 +83,25 @@ pub fn parse_progress_marker(text: &str) -> Option<ProgressPhase> {
             "WAITING_FOR_REVIEW" => Some(ProgressPhase::WaitingForReview),
             "FIXING_REVIEW_FINDINGS" => Some(ProgressPhase::FixingReviewFindings),
             "WAITING_FOR_MERGE" => Some(ProgressPhase::WaitingForMerge),
+            _ => latest,
+        };
+    }
+
+    latest
+}
+
+pub fn parse_event_marker(text: &str) -> Option<DebugEvent> {
+    let mut latest = None;
+
+    for line in text.lines().map(str::trim) {
+        let Some(value) = line.strip_prefix("NSC_EVENT:") else {
+            continue;
+        };
+        latest = match value.trim() {
+            "REVIEW_POLLING_STARTED" => Some(DebugEvent::ReviewPollingStarted),
+            "REVIEW_RETRY_POSTED" => Some(DebugEvent::ReviewRetryPosted),
+            "FOLLOWUP_PUSHED" => Some(DebugEvent::FollowupPushed),
+            "MERGE_STARTED" => Some(DebugEvent::MergeStarted),
             _ => latest,
         };
     }

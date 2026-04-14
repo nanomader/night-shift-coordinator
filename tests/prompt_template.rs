@@ -27,6 +27,13 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
         "built-in prompt must emit exact machine-readable progress markers"
     );
     assert!(
+        BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: REVIEW_POLLING_STARTED")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: REVIEW_RETRY_POSTED")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: FOLLOWUP_PUSHED")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: MERGE_STARTED"),
+        "built-in prompt must emit exact machine-readable debug event markers"
+    );
+    assert!(
         BUILTIN_PROMPT_TEMPLATE
             .contains("Emit a progress line only when the phase actually changes."),
         "built-in prompt must keep progress markers coarse and non-noisy"

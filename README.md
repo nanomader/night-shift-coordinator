@@ -40,7 +40,8 @@ If you are an LLM reading this README, the core rules are:
 - NSC runs from fetched `origin/main` and a resolved base SHA
 - prepared slice files must already exist on that execution truth
 - `NSC_RESULT:` controls ordered progression
-- `NSC_PROGRESS:` is informational only and appears only in `nsc debug ...`
+- `NSC_PROGRESS:` and `NSC_EVENT:` are informational only and appear only in
+  `nsc debug ...`
 - NSC does not copy slice files into worktrees to compensate for weak input
 
 ## Supported Use Cases
@@ -359,6 +360,23 @@ Rules:
 - NSC surfaces them only in `nsc debug ...`
 - NSC prints phase changes only, not elapsed-time heartbeat lines
 
+### Debug Event Markers
+
+The built-in prompt may also emit exact standalone workflow-event lines:
+
+```text
+NSC_EVENT: REVIEW_POLLING_STARTED
+NSC_EVENT: REVIEW_RETRY_POSTED
+NSC_EVENT: FOLLOWUP_PUSHED
+NSC_EVENT: MERGE_STARTED
+```
+
+These markers are also informational only.
+
+In debug mode they explain long quiet stretches more clearly than a generic
+heartbeat. For example, they tell you when a slice has started review polling,
+posted a same-head retry, pushed follow-up review fixes, or begun merge.
+
 ## Runtime Output
 
 NSC writes plain terminal output for a human operator.
@@ -398,6 +416,8 @@ Starting 1 slices: 01_vendor_bin_phpunit
 [01_vendor_bin_phpunit] phase: planning
 [01_vendor_bin_phpunit] phase: implementing
 [01_vendor_bin_phpunit] phase: waiting for review
+[01_vendor_bin_phpunit] event: review polling started
+[01_vendor_bin_phpunit] event: review retry posted
 ```
 
 Meaning of the main runtime lines:
@@ -415,6 +435,9 @@ Meaning of the main runtime lines:
   succeeded
 - `starting`, `running`, `phase: ...`:
   debug-only lifecycle lines
+- `event: ...`:
+  debug-only workflow milestone lines such as review polling, retry posting,
+  follow-up push, and merge start
 
 ## Runtime Files
 
@@ -437,6 +460,7 @@ Recovery JSON is intentionally small. It stores:
 - `thread_id`
 - `status`
 - optional `progress`
+- optional `progress_updated_at` for the latest progress or debug-event update
 
 This is for manual recovery only. It is not a restart system.
 

@@ -1,5 +1,6 @@
 use night_shift_coordinator::terminal_result::{
-    ProgressPhase, TerminalResultKind, parse_progress_marker, parse_terminal_result_markers,
+    DebugEvent, ProgressPhase, TerminalResultKind, parse_event_marker, parse_progress_marker,
+    parse_terminal_result_markers,
 };
 
 #[test]
@@ -66,4 +67,20 @@ fn ignores_unknown_progress_values() {
     let progress = parse_progress_marker("NSC_PROGRESS: SOMETHING_ELSE\n");
 
     assert_eq!(progress, None);
+}
+
+#[test]
+fn parses_last_recognized_event_marker_from_message() {
+    let event = parse_event_marker(
+        "note\nNSC_EVENT: REVIEW_POLLING_STARTED\ntext\nNSC_EVENT: MERGE_STARTED\n",
+    );
+
+    assert_eq!(event, Some(DebugEvent::MergeStarted));
+}
+
+#[test]
+fn ignores_unknown_event_values() {
+    let event = parse_event_marker("NSC_EVENT: SOMETHING_ELSE\n");
+
+    assert_eq!(event, None);
 }
