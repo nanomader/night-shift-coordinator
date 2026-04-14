@@ -20,12 +20,23 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("60 seconds")
-            && BUILTIN_PROMPT_TEMPLATE.contains("20 minutes"),
+            && BUILTIN_PROMPT_TEMPLATE.contains("10 minutes"),
         "built-in prompt must define the review polling interval and total window"
     );
     assert!(
-        BUILTIN_PROMPT_TEMPLATE.contains("keep polling inside the 20-minute window")
-            && BUILTIN_PROMPT_TEMPLATE.contains("only after the full 20-minute window expires"),
-        "built-in prompt must wait through the review window before MANUAL_FOLLOWUP"
+        BUILTIN_PROMPT_TEMPLATE.contains("first review window")
+            && BUILTIN_PROMPT_TEMPLATE.contains("one second\n     10-minute window"),
+        "built-in prompt must describe the first and second review windows"
+    );
+    assert!(
+        BUILTIN_PROMPT_TEMPLATE.contains(
+            "post exactly one second `@codex review` request on the same unchanged PR head"
+        ) && BUILTIN_PROMPT_TEMPLATE.contains("only after both 10-minute windows expire"),
+        "built-in prompt must retry once on the same head before MANUAL_FOLLOWUP"
+    );
+    assert!(
+        BUILTIN_PROMPT_TEMPLATE
+            .contains("not a clean review result and not a content finding by itself"),
+        "built-in prompt must distinguish review timeout from real findings"
     );
 }
