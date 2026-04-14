@@ -641,6 +641,9 @@ Wave-dirs problems:
 Result:
 
 - NSC stops before the next sibling wave-dir starts
+- if the stop reason is missing external Codex review response after the retry
+  window, that means review timing was incomplete, not that NSC proved the
+  slice itself was wrong
 
 Execution-truth problems:
 
