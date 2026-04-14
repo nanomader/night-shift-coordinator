@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use night_shift_coordinator::app_server::{
-    AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome,
+    AppServerClient, RunSliceRequest, RunUpdate, StartedRun, TerminalRunOutcome,
 };
 use night_shift_coordinator::cli::ScheduleMode;
 use night_shift_coordinator::error::Result;
@@ -54,6 +54,9 @@ impl OutputSink for RecordingOutput {
             OutputEvent::SliceProgress { label, phase } => {
                 format!("phase:{label}:{}", phase.as_display_str())
             }
+            OutputEvent::SliceWorkflowEvent { label, event } => {
+                format!("event:{label}:{}", event.as_display_str())
+            }
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
@@ -89,11 +92,11 @@ impl AppServerClient for FakeAppServerClient {
             .push(request.slice_repo_relative_path.display().to_string());
         let outcome = self.outcomes.lock().unwrap().pop_front().unwrap();
         let (tx, rx) = oneshot::channel();
-        let (_progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let (_updates_tx, updates_rx) = mpsc::unbounded_channel::<RunUpdate>();
         let _ = tx.send(Ok(outcome));
         Ok(StartedRun {
             thread_id: format!("thread-{}", self.start_count.load(Ordering::SeqCst)),
-            progress_updates: progress_rx,
+            updates: updates_rx,
             completion: rx,
         })
     }

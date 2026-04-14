@@ -14,6 +14,8 @@ pub struct RecoveryRecord {
     pub status: SliceStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<ProgressPhase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_updated_at: Option<String>,
 }
 
 pub fn recovery_path(repo_root: &Path, run_scope: &str, label: &str) -> PathBuf {

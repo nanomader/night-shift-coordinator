@@ -17,15 +17,21 @@ Workflow:
 
 - Emit exact standalone `NSC_PROGRESS:` lines when the slice enters a new
   coarse phase for this run.
+- Emit exact standalone `NSC_EVENT:` lines for high-value workflow milestones.
 - Use only this fixed set:
   - `NSC_PROGRESS: PLANNING`
   - `NSC_PROGRESS: IMPLEMENTING`
   - `NSC_PROGRESS: WAITING_FOR_REVIEW`
   - `NSC_PROGRESS: FIXING_REVIEW_FINDINGS`
   - `NSC_PROGRESS: WAITING_FOR_MERGE`
+- Use only this fixed event set:
+  - `NSC_EVENT: REVIEW_POLLING_STARTED`
+  - `NSC_EVENT: REVIEW_RETRY_POSTED`
+  - `NSC_EVENT: FOLLOWUP_PUSHED`
+  - `NSC_EVENT: MERGE_STARTED`
 - Emit a progress line only when the phase actually changes.
-- Keep `NSC_PROGRESS:` and `NSC_RESULT:` lines as exact standalone lines so NSC
-  can parse them deterministically.
+- Keep `NSC_PROGRESS:`, `NSC_EVENT:`, and `NSC_RESULT:` lines as exact
+  standalone lines so NSC can parse them deterministically.
 
 1. Inspect the current branch, working-tree state, and any open PR context
    relevant to the assigned slice.
@@ -43,43 +49,49 @@ Workflow:
    run validation, push, open the PR, archive the plan, update task history,
    and post the required head-scoped `@codex review` request.
 9. Emit `NSC_PROGRESS: WAITING_FOR_REVIEW`.
-10. After that PR exists, poll the GitHub Codex review outcome for the current
+10. Emit `NSC_EVENT: REVIEW_POLLING_STARTED`.
+11. After that PR exists, poll the GitHub Codex review outcome for the current
    PR head. If available in the environment, use `$pr-codex-review-poll`.
    Poll every 60 seconds for up to 10 minutes total for the first review window
    on the current PR head.
-11. If the review reports findings above LOW that clearly stay inside the same
+12. If the review reports findings above LOW that clearly stay inside the same
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
    every 60 seconds for up to 10 minutes total for the first review window.
    - emit `NSC_PROGRESS: FIXING_REVIEW_FINDINGS` before starting those fixes
+   - emit `NSC_EVENT: FOLLOWUP_PUSHED` immediately after pushing the updated head
    - emit `NSC_PROGRESS: WAITING_FOR_REVIEW` again after pushing the new head
      and before resuming the review poll
-12. Merge gate:
+   - emit `NSC_EVENT: REVIEW_POLLING_STARTED` again before that new review window
+13. Merge gate:
    - merge only after the current PR head has a GitHub Codex review comment that
      begins with `Codex Review: Didn't find any major issues.`
    - if that review state is present and the repo workflow allows merge:
      - emit `NSC_PROGRESS: WAITING_FOR_MERGE`
+     - emit `NSC_EVENT: MERGE_STARTED`
      - merge the PR as part of this run
    - if the review is still pending or the clean no-findings comment is not yet
      present, keep polling inside the first 10-minute window instead of stopping early
    - if the first 10-minute window expires without an accepted head-scoped outcome,
+     - emit `NSC_EVENT: REVIEW_RETRY_POSTED`
      post exactly one second `@codex review` request on the same unchanged PR head
    - after that same-head retry, keep polling every 60 seconds for one second
      10-minute window on that unchanged head
+   - emit `NSC_EVENT: REVIEW_POLLING_STARTED` again before that retry-window polling begins
    - only after both 10-minute windows expire without the required clean comment,
      stop and report manual follow-up needed instead of guessing
    - missing review response after the retry path is a review-timeout/manual-follow-up
      state, not a clean review result and not a content finding by itself
-13. If the review findings require wider scope, a new Day Shift decision, or
+14. If the review findings require wider scope, a new Day Shift decision, or
     missing repo workflow support, stop and report that blocker instead of
     improvising.
-14. End with one clear final message that reports:
+15. End with one clear final message that reports:
     - normal completion, or
     - blocker, or
     - stop condition, or
     - manual follow-up needed
-15. At the very end of the final message, emit exact standalone machine-readable
+16. At the very end of the final message, emit exact standalone machine-readable
     result lines for NSC:
     - merged success:
       - `NSC_RESULT: MERGED_SUCCESS`
@@ -106,7 +118,7 @@ Final message expectations:
   - PR number
   - current PR head SHA
   - that one same-head retry was posted
-- keep the `NSC_PROGRESS` and `NSC_RESULT` lines as exact standalone lines so
-  NSC can parse them deterministically
+- keep the `NSC_PROGRESS`, `NSC_EVENT`, and `NSC_RESULT` lines as exact
+  standalone lines so NSC can parse them deterministically
 
 Assigned slice file path:

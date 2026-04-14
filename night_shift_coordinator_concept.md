@@ -206,6 +206,12 @@ Prompt assembly should stay simple:
   - `NSC_PROGRESS: WAITING_FOR_REVIEW`
   - `NSC_PROGRESS: FIXING_REVIEW_FINDINGS`
   - `NSC_PROGRESS: WAITING_FOR_MERGE`
+- the built-in prompt may emit exact standalone workflow-event lines for
+  debug-mode visibility:
+  - `NSC_EVENT: REVIEW_POLLING_STARTED`
+  - `NSC_EVENT: REVIEW_RETRY_POSTED`
+  - `NSC_EVENT: FOLLOWUP_PUSHED`
+  - `NSC_EVENT: MERGE_STARTED`
 - those progress lines are informational only and must not affect scheduling or
   unlock behavior
 - the built-in prompt may merge the PR when the repo workflow allows it, but
@@ -224,7 +230,11 @@ Debug-output rule:
 
 - `nsc debug ...` should show `starting`, `running`, and coarse
   `phase: ...` lines when the prompt emits `NSC_PROGRESS:` markers
+- `nsc debug ...` should also show `event: ...` lines when the prompt emits
+  `NSC_EVENT:` markers for review and merge milestones
 - NSC should not print periodic elapsed-time heartbeat lines in v1.1
+- recovery JSON may store the latest progress or debug-event timestamp for manual
+  follow-up
 
 NSC must not use the old autonomous multi-slice Night Shift prompt.
 

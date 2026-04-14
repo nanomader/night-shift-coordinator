@@ -2,7 +2,12 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::app_server::{AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+
+use crate::app_server::{
+    AppServerClient, RunSliceRequest, RunUpdate, StartedRun, TerminalRunOutcome,
+};
 use crate::batch::discover_startup_candidates;
 use crate::cli::ScheduleMode;
 use crate::error::{NscError, Result};
@@ -37,7 +42,8 @@ struct RunningSlice {
     worktree_path: PathBuf,
     thread_id: String,
     latest_progress: Option<ProgressPhase>,
-    progress_updates: tokio::sync::mpsc::UnboundedReceiver<ProgressPhase>,
+    latest_progress_updated_at: Option<String>,
+    updates: tokio::sync::mpsc::UnboundedReceiver<RunUpdate>,
     completion: tokio::sync::oneshot::Receiver<Result<TerminalRunOutcome>>,
 }
 
@@ -46,6 +52,7 @@ struct RecoveryState {
     thread_id: Option<String>,
     status: SliceStatus,
     progress: Option<ProgressPhase>,
+    progress_updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -341,6 +348,7 @@ async fn launch_available(
                 thread_id: None,
                 status: SliceStatus::Starting,
                 progress: None,
+                progress_updated_at: None,
             },
         )?;
 
@@ -355,7 +363,7 @@ async fn launch_available(
         match client.start_run(request).await {
             Ok(StartedRun {
                 thread_id,
-                progress_updates,
+                updates,
                 completion,
             }) => {
                 write_recovery(
@@ -368,6 +376,7 @@ async fn launch_available(
                         thread_id: Some(thread_id.clone()),
                         status: SliceStatus::Running,
                         progress: None,
+                        progress_updated_at: None,
                     },
                 )?;
                 output.emit(OutputEvent::SliceRunning {
@@ -382,7 +391,8 @@ async fn launch_available(
                     worktree_path,
                     thread_id,
                     latest_progress: None,
-                    progress_updates,
+                    latest_progress_updated_at: None,
+                    updates,
                     completion,
                 });
             }
@@ -397,6 +407,7 @@ async fn launch_available(
                         thread_id: None,
                         status: SliceStatus::AttentionNeeded,
                         progress: None,
+                        progress_updated_at: None,
                     },
                 )?;
                 output.emit(OutputEvent::SliceNeedsAttention {
@@ -468,27 +479,53 @@ async fn wait_for_one(
 ) -> Result<(usize, Result<TerminalRunOutcome>)> {
     loop {
         for (index, slice) in running.iter_mut().enumerate() {
-            while let Ok(progress) = slice.progress_updates.try_recv() {
-                if slice.latest_progress == Some(progress) {
-                    continue;
+            while let Ok(update) = slice.updates.try_recv() {
+                match update {
+                    RunUpdate::Progress(progress) => {
+                        if slice.latest_progress == Some(progress) {
+                            continue;
+                        }
+                        slice.latest_progress = Some(progress);
+                        slice.latest_progress_updated_at = Some(progress_updated_at_now()?);
+                        write_recovery(
+                            repo_root,
+                            run_scope,
+                            &slice.internal_label,
+                            &slice.slice_file_path,
+                            &slice.worktree_path,
+                            RecoveryState {
+                                thread_id: Some(slice.thread_id.clone()),
+                                status: SliceStatus::Running,
+                                progress: slice.latest_progress,
+                                progress_updated_at: slice.latest_progress_updated_at.clone(),
+                            },
+                        )?;
+                        output.emit(OutputEvent::SliceProgress {
+                            label: &slice.output_label,
+                            phase: progress,
+                        });
+                    }
+                    RunUpdate::Event(event) => {
+                        slice.latest_progress_updated_at = Some(progress_updated_at_now()?);
+                        write_recovery(
+                            repo_root,
+                            run_scope,
+                            &slice.internal_label,
+                            &slice.slice_file_path,
+                            &slice.worktree_path,
+                            RecoveryState {
+                                thread_id: Some(slice.thread_id.clone()),
+                                status: SliceStatus::Running,
+                                progress: slice.latest_progress,
+                                progress_updated_at: slice.latest_progress_updated_at.clone(),
+                            },
+                        )?;
+                        output.emit(OutputEvent::SliceWorkflowEvent {
+                            label: &slice.output_label,
+                            event,
+                        });
+                    }
                 }
-                slice.latest_progress = Some(progress);
-                write_recovery(
-                    repo_root,
-                    run_scope,
-                    &slice.internal_label,
-                    &slice.slice_file_path,
-                    &slice.worktree_path,
-                    RecoveryState {
-                        thread_id: Some(slice.thread_id.clone()),
-                        status: SliceStatus::Running,
-                        progress: slice.latest_progress,
-                    },
-                )?;
-                output.emit(OutputEvent::SliceProgress {
-                    label: &slice.output_label,
-                    phase: progress,
-                });
             }
             match slice.completion.try_recv() {
                 Ok(result) => return Ok((index, result)),
@@ -521,6 +558,7 @@ fn handle_terminal_result(
                     thread_id: Some(finished.thread_id.clone()),
                     status: SliceStatus::FinishedPromptOwned,
                     progress: finished.latest_progress,
+                    progress_updated_at: finished.latest_progress_updated_at,
                 },
             )?;
             output.emit(OutputEvent::SliceFinishedNormally {
@@ -545,6 +583,7 @@ fn handle_terminal_result(
                     thread_id: Some(finished.thread_id.clone()),
                     status: SliceStatus::AttentionNeeded,
                     progress: finished.latest_progress,
+                    progress_updated_at: finished.latest_progress_updated_at,
                 },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
@@ -569,6 +608,7 @@ fn handle_terminal_result(
                     thread_id: Some(finished.thread_id.clone()),
                     status: SliceStatus::AttentionNeeded,
                     progress: finished.latest_progress,
+                    progress_updated_at: finished.latest_progress_updated_at,
                 },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
@@ -674,7 +714,14 @@ fn write_recovery(
             thread_id: state.thread_id,
             status: state.status,
             progress: state.progress,
+            progress_updated_at: state.progress_updated_at,
         },
     )?;
     Ok(())
+}
+
+fn progress_updated_at_now() -> Result<String> {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|err| NscError::Protocol(format!("failed to format progress timestamp: {err}")))
 }

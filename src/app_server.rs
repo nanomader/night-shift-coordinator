@@ -11,7 +11,9 @@ use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::error::{NscError, Result};
-use crate::terminal_result::{ProgressPhase, parse_progress_marker};
+use crate::terminal_result::{
+    DebugEvent, ProgressPhase, parse_event_marker, parse_progress_marker,
+};
 
 pub const DEFAULT_MODEL: &str = "gpt-5.4";
 pub const DEFAULT_REASONING_EFFORT: &str = "medium";
@@ -26,8 +28,14 @@ pub struct RunSliceRequest {
 #[derive(Debug)]
 pub struct StartedRun {
     pub thread_id: String,
-    pub progress_updates: mpsc::UnboundedReceiver<ProgressPhase>,
+    pub updates: mpsc::UnboundedReceiver<RunUpdate>,
     pub completion: oneshot::Receiver<Result<TerminalRunOutcome>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunUpdate {
+    Progress(ProgressPhase),
+    Event(DebugEvent),
 }
 
 #[derive(Debug, Clone)]
@@ -63,18 +71,16 @@ impl AppServerClient for CodexAppServerClient {
         let thread_id = session.start_thread().await?;
         let turn_id = session.start_turn(build_prompt_text(&request)).await?;
 
-        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let (updates_tx, updates_rx) = mpsc::unbounded_channel();
         let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            let result = session
-                .wait_for_terminal_outcome(turn_id, progress_tx)
-                .await;
+            let result = session.wait_for_terminal_outcome(turn_id, updates_tx).await;
             let _ = tx.send(result);
         });
 
         Ok(StartedRun {
             thread_id,
-            progress_updates: progress_rx,
+            updates: updates_rx,
             completion: rx,
         })
     }
@@ -240,11 +246,11 @@ impl Session {
     async fn wait_for_terminal_outcome(
         mut self,
         turn_id: String,
-        progress_updates: mpsc::UnboundedSender<ProgressPhase>,
+        updates: mpsc::UnboundedSender<RunUpdate>,
     ) -> Result<TerminalRunOutcome> {
         let outcome = apply_run_timeout(
             MAX_RUN_DURATION,
-            self.collect_terminal_outcome(&turn_id, progress_updates),
+            self.collect_terminal_outcome(&turn_id, updates),
         )
         .await;
         let _ = self.child.kill().await;
@@ -255,7 +261,7 @@ impl Session {
     async fn collect_terminal_outcome(
         &mut self,
         turn_id: &str,
-        progress_updates: mpsc::UnboundedSender<ProgressPhase>,
+        updates: mpsc::UnboundedSender<RunUpdate>,
     ) -> Result<TerminalRunOutcome> {
         let mut notifications = Vec::new();
         loop {
@@ -266,8 +272,8 @@ impl Session {
                 .unwrap_or_default()
                 .to_string();
             notifications.push(notification.clone());
-            if let Some(progress) = extract_progress_phase(&notification, turn_id) {
-                let _ = progress_updates.send(progress);
+            for update in extract_run_updates(&notification, turn_id) {
+                let _ = updates.send(update);
             }
             if method == "turn/completed" {
                 let completed_turn = notification
@@ -506,9 +512,9 @@ fn canonical_terminal_message(notifications: &[Value], turn_id: &str) -> Option<
     }
 }
 
-fn extract_progress_phase(notification: &Value, turn_id: &str) -> Option<ProgressPhase> {
+fn extract_run_updates(notification: &Value, turn_id: &str) -> Vec<RunUpdate> {
     if notification_turn_id(notification).as_deref() != Some(turn_id) {
-        return None;
+        return Vec::new();
     }
 
     let method = notification
@@ -516,16 +522,26 @@ fn extract_progress_phase(notification: &Value, turn_id: &str) -> Option<Progres
         .and_then(Value::as_str)
         .unwrap_or_default();
     if method != "item/completed" && method != "codex/event/item_completed" {
-        return None;
+        return Vec::new();
     }
 
-    let item = extract_item(notification)?;
+    let Some(item) = extract_item(notification) else {
+        return Vec::new();
+    };
     let item_type = normalize_label(item.get("type"));
     if item_type != "agentmessage" {
-        return None;
+        return Vec::new();
     }
 
-    parse_progress_marker(&extract_item_text(item))
+    let text = extract_item_text(item);
+    let mut updates = Vec::new();
+    if let Some(progress) = parse_progress_marker(&text) {
+        updates.push(RunUpdate::Progress(progress));
+    }
+    if let Some(event) = parse_event_marker(&text) {
+        updates.push(RunUpdate::Event(event));
+    }
+    updates
 }
 
 fn normalize_label(value: Option<&Value>) -> String {
@@ -617,11 +633,11 @@ mod tests {
     use tokio::time::sleep;
 
     use super::{
-        DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, RunSliceRequest, TerminalRunOutcome,
-        apply_run_timeout, build_prompt_text, canonical_terminal_message, extract_progress_phase,
+        DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, RunSliceRequest, RunUpdate, TerminalRunOutcome,
+        apply_run_timeout, build_prompt_text, canonical_terminal_message, extract_run_updates,
         thread_start_params, turn_start_params,
     };
-    use crate::terminal_result::ProgressPhase;
+    use crate::terminal_result::{DebugEvent, ProgressPhase};
 
     #[test]
     fn canonical_terminal_message_prefers_item_completed() {
@@ -660,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_progress_phase_reads_agent_message_markers() {
+    fn extract_run_updates_reads_progress_and_event_markers() {
         let notification = json!({
             "method": "item/completed",
             "params": {
@@ -668,31 +684,34 @@ mod tests {
                 "item": {
                     "type": "agent_message",
                     "phase": "assistant",
-                    "text": "working\nNSC_PROGRESS: IMPLEMENTING\n",
+                    "text": "working\nNSC_PROGRESS: IMPLEMENTING\nNSC_EVENT: REVIEW_POLLING_STARTED\n",
                 }
             }
         });
 
         assert_eq!(
-            extract_progress_phase(&notification, "turn-1"),
-            Some(ProgressPhase::Implementing)
+            extract_run_updates(&notification, "turn-1"),
+            vec![
+                RunUpdate::Progress(ProgressPhase::Implementing),
+                RunUpdate::Event(DebugEvent::ReviewPollingStarted)
+            ]
         );
     }
 
     #[test]
-    fn extract_progress_phase_ignores_other_turns() {
+    fn extract_run_updates_ignores_other_turns() {
         let notification = json!({
             "method": "item/completed",
             "params": {
                 "turnId": "turn-2",
                 "item": {
                     "type": "agent_message",
-                    "text": "NSC_PROGRESS: PLANNING",
+                    "text": "NSC_PROGRESS: PLANNING\nNSC_EVENT: MERGE_STARTED",
                 }
             }
         });
 
-        assert_eq!(extract_progress_phase(&notification, "turn-1"), None);
+        assert!(extract_run_updates(&notification, "turn-1").is_empty());
     }
 
     #[test]
