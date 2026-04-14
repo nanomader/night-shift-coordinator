@@ -7,6 +7,33 @@ It solves one concrete problem: long Night Shift runs can stop or hang while no
 human is watching. NSC runs prepared slices in separate worktrees and surfaces
 which runs finished normally and which runs need attention.
 
+## NSC Cheat Sheet
+
+In simple terms:
+
+- you prepare coding tasks as markdown files
+- NSC runs those tasks in isolated worktrees
+- NSC watches the runs and tells you what finished and what needs attention
+
+Supported right now:
+
+- run one prepared slice
+- run up to 3 independent slices in parallel from one folder
+- run ordered wave-dirs one after another with `--schedule wave-dirs`
+- run several slices in parallel inside one wave-dir when they are safe to run
+  together
+- stop before the next ordered wave-dir if the current one did not land cleanly
+- leave recovery info under `.nsc/` for manual follow-up
+
+Not supported right now:
+
+- preparing slices for you
+- inventing dependency order automatically
+- changing the active batch while NSC is already running
+- repairing weak input so an invalid run can still continue
+- automatically resuming an old NSC run
+- acting like a full GoalCoder-style orchestrator
+
 ## What NSC Is
 
 NSC is an execution supervisor for prepared Night Shift work.
