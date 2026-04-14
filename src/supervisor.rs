@@ -15,7 +15,8 @@ use crate::output::{OutputEvent, OutputSink};
 use crate::recovery::{RecoveryRecord, write_record};
 use crate::slice::{MAX_PARALLEL_SLICES, SliceCandidate, SliceStatus};
 use crate::terminal_result::{ProgressPhase, TerminalResultKind, parse_terminal_result_markers};
-use crate::wave_dirs::discover_wave_dirs;
+use crate::wave_dirs::{WaveDir, discover_wave_dirs};
+use crate::wave_roots::discover_wave_roots;
 use crate::worktree::{
     base_ref_contains_repo_relative_path, create_worktree, origin_main_contains_commit,
     prepare_default_base_ref, run_scope_now,
@@ -23,7 +24,7 @@ use crate::worktree::{
 
 pub struct SupervisorOptions {
     pub repo_root: PathBuf,
-    pub slice_folder: PathBuf,
+    pub target_root: PathBuf,
     pub prompt_template: String,
     pub schedule: ScheduleMode,
 }
@@ -56,7 +57,7 @@ struct RecoveryState {
 }
 
 #[derive(Debug, Clone)]
-struct BatchRunSummary {
+struct FlatBatchRunSummary {
     completed_slices: Vec<CompletedSlice>,
 }
 
@@ -107,7 +108,7 @@ pub async fn run(
                 &run_scope,
                 &base_ref,
                 None,
-                &options.slice_folder,
+                &options.target_root,
                 client,
                 output,
             )
@@ -128,18 +129,38 @@ pub async fn run(
                 }
             })
         }
-        ScheduleMode::WaveDirs => run_wave_dirs(&options, &run_scope, client, output).await,
+        ScheduleMode::WaveDirs => {
+            let wave_dirs = match discover_wave_dirs(&options.target_root) {
+                Ok(wave_dirs) => wave_dirs,
+                Err(err) => {
+                    output.emit(OutputEvent::FatalStartupFailure {
+                        message: &err.to_string(),
+                    });
+                    return Err(err);
+                }
+            };
+            run_wave_root(
+                &options,
+                &run_scope,
+                None,
+                wave_dirs,
+                client,
+                output,
+            )
+            .await
+        }
+        ScheduleMode::WaveRoots => run_program_root(&options, &run_scope, client, output).await,
     }
 }
 
-async fn run_wave_dirs(
+async fn run_program_root(
     options: &SupervisorOptions,
     run_scope: &str,
     client: &dyn AppServerClient,
     output: &mut dyn OutputSink,
 ) -> Result<()> {
-    let wave_dirs = match discover_wave_dirs(&options.slice_folder) {
-        Ok(wave_dirs) => wave_dirs,
+    let wave_roots = match discover_wave_roots(&options.target_root) {
+        Ok(wave_roots) => wave_roots,
         Err(err) => {
             output.emit(OutputEvent::FatalStartupFailure {
                 message: &err.to_string(),
@@ -148,7 +169,71 @@ async fn run_wave_dirs(
         }
     };
 
-    output.emit(OutputEvent::WaveRootSummary {
+    output.emit(OutputEvent::ProgramRootSummary {
+        total_wave_roots: wave_roots.len(),
+    });
+
+    for (index, wave_root) in wave_roots.iter().enumerate() {
+        output.emit(OutputEvent::WaveRootStarting {
+            index: index + 1,
+            total: wave_roots.len(),
+            name: &wave_root.name,
+        });
+
+        let wave_dirs = match discover_wave_dirs(&wave_root.path) {
+            Ok(wave_dirs) => wave_dirs,
+            Err(err) => {
+                output.emit(OutputEvent::WaveRootStopped {
+                    index: index + 1,
+                    total: wave_roots.len(),
+                    name: &wave_root.name,
+                    reason: &err.to_string(),
+                });
+                return Err(err);
+            }
+        };
+
+        match run_wave_root(
+            options,
+            run_scope,
+            Some(&wave_root.name),
+            wave_dirs,
+            client,
+            output,
+        )
+        .await {
+            Ok(()) => {
+                output.emit(OutputEvent::WaveRootFinished {
+                    index: index + 1,
+                    total: wave_roots.len(),
+                    name: &wave_root.name,
+                    result: TerminalResultKind::MergedSuccess.as_str(),
+                });
+            }
+            Err(err) => {
+                output.emit(OutputEvent::WaveRootStopped {
+                    index: index + 1,
+                    total: wave_roots.len(),
+                    name: &wave_root.name,
+                    reason: &err.to_string(),
+                });
+                return Err(err);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_wave_root(
+    options: &SupervisorOptions,
+    run_scope: &str,
+    root_label_scope: Option<&str>,
+    wave_dirs: Vec<WaveDir>,
+    client: &dyn AppServerClient,
+    output: &mut dyn OutputSink,
+) -> Result<()> {
+    output.emit(OutputEvent::WaveDirRootSummary {
         total_wave_dirs: wave_dirs.len(),
     });
 
@@ -176,11 +261,12 @@ async fn run_wave_dirs(
             },
         };
 
+        let label_scope = wave_dir_label_scope(root_label_scope, &wave_dir.name);
         let summary = match run_flat_batch(
             options,
             run_scope,
             &base_ref,
-            Some(&wave_dir.name),
+            Some(label_scope.as_str()),
             &wave_dir.path,
             client,
             output,
@@ -235,7 +321,7 @@ async fn run_flat_batch(
     batch_dir: &Path,
     client: &dyn AppServerClient,
     output: &mut dyn OutputSink,
-) -> std::result::Result<BatchRunSummary, BatchRunFailure> {
+) -> std::result::Result<FlatBatchRunSummary, BatchRunFailure> {
     let mut pending = VecDeque::new();
     let startup_candidates =
         discover_startup_candidates(batch_dir).map_err(BatchRunFailure::BeforeLaunch)?;
@@ -300,7 +386,7 @@ async fn run_flat_batch(
         .map_err(|err| map_batch_run_failure(err, &running, &completed_slices))?;
     }
 
-    Ok(BatchRunSummary { completed_slices })
+    Ok(FlatBatchRunSummary { completed_slices })
 }
 
 fn queue_slice(candidate: SliceCandidate, label_scope: Option<&str>) -> QueuedSlice {
@@ -630,7 +716,7 @@ fn handle_terminal_result(
 fn verify_wave_dir_unlock(
     repo_root: &Path,
     wave_dir_name: &str,
-    summary: &BatchRunSummary,
+    summary: &FlatBatchRunSummary,
 ) -> Result<String> {
     let refreshed_base_ref = prepare_default_base_ref(repo_root)?;
 
@@ -694,6 +780,13 @@ fn verify_wave_dir_unlock(
     }
 
     Ok(refreshed_base_ref)
+}
+
+fn wave_dir_label_scope(root_label_scope: Option<&str>, wave_dir_name: &str) -> String {
+    match root_label_scope {
+        Some(root_label) => format!("{root_label}__{wave_dir_name}"),
+        None => wave_dir_name.to_string(),
+    }
 }
 
 fn write_recovery(

@@ -33,7 +33,27 @@ impl RecordingOutput {
 impl OutputSink for RecordingOutput {
     fn emit(&mut self, event: OutputEvent<'_>) {
         let line = match event {
-            OutputEvent::WaveRootSummary { total_wave_dirs } => format!("waves:{total_wave_dirs}"),
+            OutputEvent::ProgramRootSummary { total_wave_roots } => {
+                format!("program-waves:{total_wave_roots}")
+            }
+            OutputEvent::WaveDirRootSummary { total_wave_dirs } => {
+                format!("wave-dirs:{total_wave_dirs}")
+            }
+            OutputEvent::WaveRootStarting { index, total, name } => {
+                format!("wave-root-start:{index}/{total}:{name}")
+            }
+            OutputEvent::WaveRootFinished {
+                index,
+                total,
+                name,
+                result,
+            } => format!("wave-root-finished:{index}/{total}:{name}:{result}"),
+            OutputEvent::WaveRootStopped {
+                index,
+                total,
+                name,
+                reason,
+            } => format!("wave-root-stopped:{index}/{total}:{name}:{reason}"),
             OutputEvent::WaveDirStarting { index, total, name } => {
                 format!("wave-start:{index}/{total}:{name}")
             }
@@ -138,7 +158,7 @@ async fn starts_next_slice_when_a_slot_frees_up() {
     run(
         SupervisorOptions {
             repo_root: repo.path().to_path_buf(),
-            slice_folder: slice_dir,
+            target_root: slice_dir,
             prompt_template: "prompt".to_string(),
             schedule: ScheduleMode::Flat,
         },
@@ -172,7 +192,7 @@ async fn startup_unreadable_slice_fails_before_any_run_is_launched() {
     let result = run(
         SupervisorOptions {
             repo_root: repo.path().to_path_buf(),
-            slice_folder: slice_dir,
+            target_root: slice_dir,
             prompt_template: "prompt".to_string(),
             schedule: ScheduleMode::Flat,
         },
@@ -218,7 +238,7 @@ async fn startup_fails_when_origin_main_is_unavailable() {
     let result = run(
         SupervisorOptions {
             repo_root: repo.path().to_path_buf(),
-            slice_folder: slice_dir,
+            target_root: slice_dir,
             prompt_template: "prompt".to_string(),
             schedule: ScheduleMode::Flat,
         },

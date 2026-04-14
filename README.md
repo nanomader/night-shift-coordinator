@@ -35,8 +35,10 @@ If you are an LLM reading this README, the core rules are:
 - one slice = one markdown file
 - `nsc run <slice-folder>` = flat batch mode
 - `nsc run <wave-root> --schedule wave-dirs` = ordered child wave-dir mode
+- `nsc run <program-root> --schedule wave-roots` = ordered wave-root mode
 - flat mode assumes slices in one folder are already parallel-safe
 - `wave-dirs` runs one child `batchNN_name` directory at a time
+- `wave-roots` runs one child `waveNN_name` directory at a time
 - NSC runs from fetched `origin/main` and a resolved base SHA
 - prepared slice files must already exist on that execution truth
 - `NSC_RESULT:` controls ordered progression
@@ -51,8 +53,11 @@ NSC currently supports:
 - run one prepared slice
 - run up to 3 independent prepared slices in parallel from one folder
 - run ordered wave-dirs one after another with `--schedule wave-dirs`
+- run ordered wave roots one after another with `--schedule wave-roots`
 - run several parallel-safe slices inside one wave-dir
+- run several prepared wave roots that each already use `wave-dirs`
 - stop before the next ordered wave-dir if the current one did not land cleanly
+- stop before the next ordered wave root if the current one did not land cleanly
 - leave recovery info under `.nsc/` for manual follow-up
 
 NSC does not currently support:
@@ -90,6 +95,13 @@ ordered child batches:
 nsc run <wave-root> --schedule wave-dirs
 ```
 
+Use ordered wave-roots mode when Day Shift already prepared one parent folder
+of ordered wave roots:
+
+```bash
+nsc run <program-root> --schedule wave-roots
+```
+
 ## Commands
 
 Default commands:
@@ -113,12 +125,19 @@ nsc run <wave-root> --schedule wave-dirs
 nsc debug <wave-root> --schedule wave-dirs
 ```
 
+With ordered wave-roots scheduling:
+
+```bash
+nsc run <program-root> --schedule wave-roots
+nsc debug <program-root> --schedule wave-roots
+```
+
 ## Core Contract
 
 These rules define how NSC behaves.
 
 - the current working directory must be the target repo root
-- the supplied slice folder must be inside that repository
+- the supplied target path must be inside that repository
 - NSC force-fetches `origin/main`, resolves an exact base SHA, and creates
   worktrees from that frozen base
 - prepared slice files must already exist on the repository state NSC executes
@@ -132,7 +151,7 @@ These rules define how NSC behaves.
 
 ## Scheduling Modes
 
-NSC has two execution modes.
+NSC has three execution modes.
 
 ### Flat Batch Mode
 
@@ -198,6 +217,49 @@ repo_materials/night_shift_batches/validation_entrypoint_wave2_php/
     01_composer_test_phpunit.md
 ```
 
+### Ordered Wave-Roots Mode
+
+Command:
+
+```bash
+nsc run <program-root> --schedule wave-roots
+```
+
+Contract:
+
+- the supplied folder is a program root
+- each immediate child directory is one wave root
+- wave-root names must match `waveNN_name`
+- numbering must be contiguous inside that root
+- `README.md` and hidden entries are allowed in the root
+- any other visible root-level non-directory entry fails fast
+- any visible child directory not matching `waveNN_name` fails fast
+- sibling wave roots run one at a time in numeric order
+- each wave root reuses existing `wave-dirs` behavior unchanged
+- NSC fetches `origin/main` before each next wave root
+- NSC also still fetches between child wave-dirs inside each wave root
+- the next wave root starts only after the current wave root fully satisfies
+  the existing merged-success `wave-dirs` contract
+- program-root contents are frozen at startup
+
+Minimal example:
+
+```text
+repo_materials/night_shift_batches/validation_entrypoint_program/
+  README.md
+  wave03_ruby/
+    batch01_bundle_exec_rspec/
+      01_bundle_exec_rspec.md
+    batch02_bin_rspec/
+      02_bin_rspec.md
+  wave04_ruby_minitest_family/
+    batch01_bin_rails_test/
+      01_bin_rails_test.md
+  wave05_elixir/
+    batch01_mix_test/
+      01_mix_test.md
+```
+
 ### Mixed Ordered and Parallel Work
 
 Use `--schedule wave-dirs` when some early work must happen in strict order,
@@ -237,6 +299,39 @@ Put several slices in one wave-dir only when:
 - they are parallel-safe with each other
 - they are merge-safe from the same fetched `origin/main` base
 - none of them needs another slice in that same wave-dir to land first
+
+### Separate Prepared Waves
+
+Use `--schedule wave-roots` when you already have several separately prepared
+wave roots and want NSC to run them one after another without manual relaunches.
+
+Structure the batch like this:
+
+```text
+repo_materials/night_shift_batches/validation_entrypoint_program/
+  wave03_ruby/
+    batch01_bundle_exec_rspec/
+      01_bundle_exec_rspec.md
+    batch02_bin_rspec/
+      02_bin_rspec.md
+  wave04_ruby_minitest_family/
+    batch01_bin_rails_test/
+      01_bin_rails_test.md
+    batch02_bundle_exec_rake_test/
+      02_bundle_exec_rake_test.md
+  wave05_elixir/
+    batch01_mix_test/
+      01_mix_test.md
+```
+
+What happens:
+
+1. `wave03_ruby` runs first
+2. `wave04_ruby_minitest_family` starts only after `wave03_ruby` finishes
+   fully merged-success
+3. `wave05_elixir` starts only after `wave04_ruby_minitest_family` finishes
+   fully merged-success
+4. inside each wave root, NSC still uses the existing `wave-dirs` rules
 
 ## Two Common Flows
 
