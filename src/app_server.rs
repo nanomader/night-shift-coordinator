@@ -11,6 +11,7 @@ use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::error::{NscError, Result};
+use crate::terminal_result::{ProgressPhase, parse_progress_marker};
 
 pub const DEFAULT_MODEL: &str = "gpt-5.4";
 pub const DEFAULT_REASONING_EFFORT: &str = "medium";
@@ -25,6 +26,7 @@ pub struct RunSliceRequest {
 #[derive(Debug)]
 pub struct StartedRun {
     pub thread_id: String,
+    pub progress_updates: mpsc::UnboundedReceiver<ProgressPhase>,
     pub completion: oneshot::Receiver<Result<TerminalRunOutcome>>,
 }
 
@@ -61,14 +63,18 @@ impl AppServerClient for CodexAppServerClient {
         let thread_id = session.start_thread().await?;
         let turn_id = session.start_turn(build_prompt_text(&request)).await?;
 
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            let result = session.wait_for_terminal_outcome(turn_id).await;
+            let result = session
+                .wait_for_terminal_outcome(turn_id, progress_tx)
+                .await;
             let _ = tx.send(result);
         });
 
         Ok(StartedRun {
             thread_id,
+            progress_updates: progress_rx,
             completion: rx,
         })
     }
@@ -231,15 +237,26 @@ impl Session {
         Ok(turn_id.to_string())
     }
 
-    async fn wait_for_terminal_outcome(mut self, turn_id: String) -> Result<TerminalRunOutcome> {
-        let outcome =
-            apply_run_timeout(MAX_RUN_DURATION, self.collect_terminal_outcome(&turn_id)).await;
+    async fn wait_for_terminal_outcome(
+        mut self,
+        turn_id: String,
+        progress_updates: mpsc::UnboundedSender<ProgressPhase>,
+    ) -> Result<TerminalRunOutcome> {
+        let outcome = apply_run_timeout(
+            MAX_RUN_DURATION,
+            self.collect_terminal_outcome(&turn_id, progress_updates),
+        )
+        .await;
         let _ = self.child.kill().await;
         let _ = self.child.wait().await;
         outcome
     }
 
-    async fn collect_terminal_outcome(&mut self, turn_id: &str) -> Result<TerminalRunOutcome> {
+    async fn collect_terminal_outcome(
+        &mut self,
+        turn_id: &str,
+        progress_updates: mpsc::UnboundedSender<ProgressPhase>,
+    ) -> Result<TerminalRunOutcome> {
         let mut notifications = Vec::new();
         loop {
             let notification = self.wait_for_notification().await?;
@@ -249,6 +266,9 @@ impl Session {
                 .unwrap_or_default()
                 .to_string();
             notifications.push(notification.clone());
+            if let Some(progress) = extract_progress_phase(&notification, turn_id) {
+                let _ = progress_updates.send(progress);
+            }
             if method == "turn/completed" {
                 let completed_turn = notification
                     .get("params")
@@ -486,6 +506,28 @@ fn canonical_terminal_message(notifications: &[Value], turn_id: &str) -> Option<
     }
 }
 
+fn extract_progress_phase(notification: &Value, turn_id: &str) -> Option<ProgressPhase> {
+    if notification_turn_id(notification).as_deref() != Some(turn_id) {
+        return None;
+    }
+
+    let method = notification
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if method != "item/completed" && method != "codex/event/item_completed" {
+        return None;
+    }
+
+    let item = extract_item(notification)?;
+    let item_type = normalize_label(item.get("type"));
+    if item_type != "agentmessage" {
+        return None;
+    }
+
+    parse_progress_marker(&extract_item_text(item))
+}
+
 fn normalize_label(value: Option<&Value>) -> String {
     value
         .and_then(Value::as_str)
@@ -576,9 +618,10 @@ mod tests {
 
     use super::{
         DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, RunSliceRequest, TerminalRunOutcome,
-        apply_run_timeout, build_prompt_text, canonical_terminal_message, thread_start_params,
-        turn_start_params,
+        apply_run_timeout, build_prompt_text, canonical_terminal_message, extract_progress_phase,
+        thread_start_params, turn_start_params,
     };
+    use crate::terminal_result::ProgressPhase;
 
     #[test]
     fn canonical_terminal_message_prefers_item_completed() {
@@ -614,6 +657,42 @@ mod tests {
             canonical_terminal_message(&notifications, "turn-1").as_deref(),
             Some("blocked")
         );
+    }
+
+    #[test]
+    fn extract_progress_phase_reads_agent_message_markers() {
+        let notification = json!({
+            "method": "item/completed",
+            "params": {
+                "turnId": "turn-1",
+                "item": {
+                    "type": "agent_message",
+                    "phase": "assistant",
+                    "text": "working\nNSC_PROGRESS: IMPLEMENTING\n",
+                }
+            }
+        });
+
+        assert_eq!(
+            extract_progress_phase(&notification, "turn-1"),
+            Some(ProgressPhase::Implementing)
+        );
+    }
+
+    #[test]
+    fn extract_progress_phase_ignores_other_turns() {
+        let notification = json!({
+            "method": "item/completed",
+            "params": {
+                "turnId": "turn-2",
+                "item": {
+                    "type": "agent_message",
+                    "text": "NSC_PROGRESS: PLANNING",
+                }
+            }
+        });
+
+        assert_eq!(extract_progress_phase(&notification, "turn-1"), None);
     }
 
     #[test]

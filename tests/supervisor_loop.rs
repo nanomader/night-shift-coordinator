@@ -16,7 +16,7 @@ use night_shift_coordinator::supervisor::{SupervisorOptions, run};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 struct RecordingOutput {
     lines: Arc<Mutex<Vec<String>>>,
@@ -55,10 +55,9 @@ impl OutputSink for RecordingOutput {
             OutputEvent::SliceRunning {
                 label, thread_id, ..
             } => format!("running:{label}:{thread_id}"),
-            OutputEvent::SliceStillRunning {
-                label,
-                elapsed_seconds,
-            } => format!("heartbeat:{label}:{elapsed_seconds}"),
+            OutputEvent::SliceProgress { label, phase } => {
+                format!("phase:{label}:{}", phase.as_display_str())
+            }
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
@@ -88,9 +87,11 @@ impl AppServerClient for FakeAppServerClient {
         self.start_count.fetch_add(1, Ordering::SeqCst);
         let outcome = self.outcomes.lock().unwrap().pop_front().unwrap();
         let (tx, rx) = oneshot::channel();
+        let (_progress_tx, progress_rx) = mpsc::unbounded_channel();
         let _ = tx.send(Ok(outcome));
         Ok(StartedRun {
             thread_id: "thread-123".to_string(),
+            progress_updates: progress_rx,
             completion: rx,
         })
     }

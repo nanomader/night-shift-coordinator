@@ -199,6 +199,15 @@ Prompt assembly should stay simple:
   `$implementation-new-branch-pr`, and GitHub Codex review polling every 60
   seconds for up to 10 minutes, then one same-head retry and one second
   10-minute poll window if needed
+- the built-in prompt may emit exact standalone progress lines for debug-mode
+  visibility:
+  - `NSC_PROGRESS: PLANNING`
+  - `NSC_PROGRESS: IMPLEMENTING`
+  - `NSC_PROGRESS: WAITING_FOR_REVIEW`
+  - `NSC_PROGRESS: FIXING_REVIEW_FINDINGS`
+  - `NSC_PROGRESS: WAITING_FOR_MERGE`
+- those progress lines are informational only and must not affect scheduling or
+  unlock behavior
 - the built-in prompt may merge the PR when the repo workflow allows it, but
   only after a GitHub Codex review comment for the current PR head begins with
   `Codex Review: Didn't find any major issues.`
@@ -210,6 +219,12 @@ Prompt assembly should stay simple:
   - or one non-success `NSC_RESULT:` line such as `MANUAL_FOLLOWUP`
 - do not inline slice contents into the prompt in v1
 - do not add extra prompt-generation logic in v1
+
+Debug-output rule:
+
+- `nsc debug ...` should show `starting`, `running`, and coarse
+  `phase: ...` lines when the prompt emits `NSC_PROGRESS:` markers
+- NSC should not print periodic elapsed-time heartbeat lines in v1.1
 
 NSC must not use the old autonomous multi-slice Night Shift prompt.
 

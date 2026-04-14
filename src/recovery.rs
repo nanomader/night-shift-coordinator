@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::slice::SliceStatus;
+use crate::terminal_result::ProgressPhase;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecoveryRecord {
@@ -11,6 +12,8 @@ pub struct RecoveryRecord {
     pub worktree_path: String,
     pub thread_id: Option<String>,
     pub status: SliceStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<ProgressPhase>,
 }
 
 pub fn recovery_path(repo_root: &Path, run_scope: &str, label: &str) -> PathBuf {

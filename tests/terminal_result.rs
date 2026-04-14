@@ -1,4 +1,6 @@
-use night_shift_coordinator::terminal_result::{TerminalResultKind, parse_terminal_result_markers};
+use night_shift_coordinator::terminal_result::{
+    ProgressPhase, TerminalResultKind, parse_progress_marker, parse_terminal_result_markers,
+};
 
 #[test]
 fn parses_merged_success_markers() {
@@ -49,4 +51,19 @@ fn rejects_malformed_pr() {
         parse_terminal_result_markers("NSC_RESULT: MERGED_SUCCESS\nNSC_PR: nope\n").unwrap_err();
 
     assert!(err.to_string().contains("invalid NSC_PR"));
+}
+
+#[test]
+fn parses_last_recognized_progress_marker_from_message() {
+    let progress =
+        parse_progress_marker("note\nNSC_PROGRESS: PLANNING\ntext\nNSC_PROGRESS: IMPLEMENTING\n");
+
+    assert_eq!(progress, Some(ProgressPhase::Implementing));
+}
+
+#[test]
+fn ignores_unknown_progress_values() {
+    let progress = parse_progress_marker("NSC_PROGRESS: SOMETHING_ELSE\n");
+
+    assert_eq!(progress, None);
 }

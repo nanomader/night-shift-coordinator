@@ -15,6 +15,18 @@ Rules:
 
 Workflow:
 
+- Emit exact standalone `NSC_PROGRESS:` lines when the slice enters a new
+  coarse phase for this run.
+- Use only this fixed set:
+  - `NSC_PROGRESS: PLANNING`
+  - `NSC_PROGRESS: IMPLEMENTING`
+  - `NSC_PROGRESS: WAITING_FOR_REVIEW`
+  - `NSC_PROGRESS: FIXING_REVIEW_FINDINGS`
+  - `NSC_PROGRESS: WAITING_FOR_MERGE`
+- Emit a progress line only when the phase actually changes.
+- Keep `NSC_PROGRESS:` and `NSC_RESULT:` lines as exact standalone lines so NSC
+  can parse them deterministically.
+
 1. Inspect the current branch, working-tree state, and any open PR context
    relevant to the assigned slice.
 2. Read the assigned slice file and the repo-local instructions needed to work
@@ -23,25 +35,32 @@ Workflow:
    `Is there anything of importance we should discuss before creating implementation markdown file plan in this scope?`
 4. If the answer is already resolved by repo context, continue. If it is not,
    stop and report the exact missing decision or blocker.
-5. Use `$plan-author-review-loop` to create and review the implementation plan
+5. Emit `NSC_PROGRESS: PLANNING`.
+6. Use `$plan-author-review-loop` to create and review the implementation plan
    for this exact slice.
-6. Use `$implementation-new-branch-pr` to implement that plan on a new branch,
+7. Emit `NSC_PROGRESS: IMPLEMENTING`.
+8. Use `$implementation-new-branch-pr` to implement that plan on a new branch,
    run validation, push, open the PR, archive the plan, update task history,
    and post the required head-scoped `@codex review` request.
-7. After that PR exists, poll the GitHub Codex review outcome for the current
+9. Emit `NSC_PROGRESS: WAITING_FOR_REVIEW`.
+10. After that PR exists, poll the GitHub Codex review outcome for the current
    PR head. If available in the environment, use `$pr-codex-review-poll`.
    Poll every 60 seconds for up to 10 minutes total for the first review window
    on the current PR head.
-8. If the review reports findings above LOW that clearly stay inside the same
+11. If the review reports findings above LOW that clearly stay inside the same
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
    every 60 seconds for up to 10 minutes total for the first review window.
-9. Merge gate:
+   - emit `NSC_PROGRESS: FIXING_REVIEW_FINDINGS` before starting those fixes
+   - emit `NSC_PROGRESS: WAITING_FOR_REVIEW` again after pushing the new head
+     and before resuming the review poll
+12. Merge gate:
    - merge only after the current PR head has a GitHub Codex review comment that
      begins with `Codex Review: Didn't find any major issues.`
-   - if that review state is present and the repo workflow allows merge, merge
-     the PR as part of this run
+   - if that review state is present and the repo workflow allows merge:
+     - emit `NSC_PROGRESS: WAITING_FOR_MERGE`
+     - merge the PR as part of this run
    - if the review is still pending or the clean no-findings comment is not yet
      present, keep polling inside the first 10-minute window instead of stopping early
    - if the first 10-minute window expires without an accepted head-scoped outcome,
@@ -52,15 +71,15 @@ Workflow:
      stop and report manual follow-up needed instead of guessing
    - missing review response after the retry path is a review-timeout/manual-follow-up
      state, not a clean review result and not a content finding by itself
-10. If the review findings require wider scope, a new Day Shift decision, or
+13. If the review findings require wider scope, a new Day Shift decision, or
     missing repo workflow support, stop and report that blocker instead of
     improvising.
-11. End with one clear final message that reports:
+14. End with one clear final message that reports:
     - normal completion, or
     - blocker, or
     - stop condition, or
     - manual follow-up needed
-12. At the very end of the final message, emit exact standalone machine-readable
+15. At the very end of the final message, emit exact standalone machine-readable
     result lines for NSC:
     - merged success:
       - `NSC_RESULT: MERGED_SUCCESS`
@@ -87,7 +106,7 @@ Final message expectations:
   - PR number
   - current PR head SHA
   - that one same-head retry was posted
-- keep the `NSC_RESULT` lines as exact standalone lines so NSC can parse them
-  deterministically
+- keep the `NSC_PROGRESS` and `NSC_RESULT` lines as exact standalone lines so
+  NSC can parse them deterministically
 
 Assigned slice file path:

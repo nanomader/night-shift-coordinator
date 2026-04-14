@@ -1,4 +1,38 @@
+use serde::{Deserialize, Serialize};
+
 use crate::error::{NscError, Result};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgressPhase {
+    Planning,
+    Implementing,
+    WaitingForReview,
+    FixingReviewFindings,
+    WaitingForMerge,
+}
+
+impl ProgressPhase {
+    pub fn as_marker_str(self) -> &'static str {
+        match self {
+            Self::Planning => "PLANNING",
+            Self::Implementing => "IMPLEMENTING",
+            Self::WaitingForReview => "WAITING_FOR_REVIEW",
+            Self::FixingReviewFindings => "FIXING_REVIEW_FINDINGS",
+            Self::WaitingForMerge => "WAITING_FOR_MERGE",
+        }
+    }
+
+    pub fn as_display_str(self) -> &'static str {
+        match self {
+            Self::Planning => "planning",
+            Self::Implementing => "implementing",
+            Self::WaitingForReview => "waiting_for_review",
+            Self::FixingReviewFindings => "fixing_review_findings",
+            Self::WaitingForMerge => "waiting_for_merge",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalResultKind {
@@ -24,6 +58,26 @@ pub struct TerminalResultMarkers {
     pub result: TerminalResultKind,
     pub merged_main_sha: Option<String>,
     pub pr_number: Option<u64>,
+}
+
+pub fn parse_progress_marker(text: &str) -> Option<ProgressPhase> {
+    let mut latest = None;
+
+    for line in text.lines().map(str::trim) {
+        let Some(value) = line.strip_prefix("NSC_PROGRESS:") else {
+            continue;
+        };
+        latest = match value.trim() {
+            "PLANNING" => Some(ProgressPhase::Planning),
+            "IMPLEMENTING" => Some(ProgressPhase::Implementing),
+            "WAITING_FOR_REVIEW" => Some(ProgressPhase::WaitingForReview),
+            "FIXING_REVIEW_FINDINGS" => Some(ProgressPhase::FixingReviewFindings),
+            "WAITING_FOR_MERGE" => Some(ProgressPhase::WaitingForMerge),
+            _ => latest,
+        };
+    }
+
+    latest
 }
 
 pub fn parse_terminal_result_markers(text: &str) -> Result<Option<TerminalResultMarkers>> {
