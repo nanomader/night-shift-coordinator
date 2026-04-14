@@ -30,13 +30,13 @@ Workflow:
    and post the required head-scoped `@codex review` request.
 7. After that PR exists, poll the GitHub Codex review outcome for the current
    PR head. If available in the environment, use `$pr-codex-review-poll`.
-   Poll every 60 seconds for up to 10 minutes total before giving up on the
-   current PR head review gate.
+   Poll every 60 seconds for up to 10 minutes total for the first review window
+   on the current PR head.
 8. If the review reports findings above LOW that clearly stay inside the same
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
-   every 60 seconds for up to 10 minutes total before giving up.
+   every 60 seconds for up to 10 minutes total for the first review window.
 9. Merge gate:
    - merge only after the current PR head has a GitHub Codex review comment that
      begins with `Codex Review: Didn't find any major issues.`
@@ -50,6 +50,8 @@ Workflow:
      10-minute window on that unchanged head
    - only after both 10-minute windows expire without the required clean comment,
      stop and report manual follow-up needed instead of guessing
+   - missing review response after the retry path is a review-timeout/manual-follow-up
+     state, not a clean review result and not a content finding by itself
 10. If the review findings require wider scope, a new Day Shift decision, or
     missing repo workflow support, stop and report that blocker instead of
     improvising.
