@@ -198,6 +198,46 @@ repo_materials/night_shift_batches/validation_entrypoint_wave2_php/
     01_composer_test_phpunit.md
 ```
 
+### Mixed Ordered and Parallel Work
+
+Use `--schedule wave-dirs` when some early work must happen in strict order,
+but later work can run in parallel.
+
+Structure the batch like this:
+
+```text
+repo_materials/night_shift_batches/ruby_wave3/
+  batch01_foundation/
+    01_foundation.md
+  batch02_followup/
+    01_followup.md
+  batch03_parallel_finish/
+    01_docs.md
+    02_tests.md
+    03_cleanup.md
+```
+
+What happens:
+
+1. `batch01_foundation` runs first
+2. `batch02_followup` starts only after `batch01_foundation` finishes with
+   merged success
+3. `batch03_parallel_finish` starts only after `batch02_followup` finishes with
+   merged success
+4. inside `batch03_parallel_finish`, NSC may run up to 3 slices in parallel
+
+Use separate wave-dirs when:
+
+- later work depends on earlier work landing on `main`
+- one slice changes the base that later slices must build on
+- you want a hard stop before later work begins
+
+Put several slices in one wave-dir only when:
+
+- they are parallel-safe with each other
+- they are merge-safe from the same fetched `origin/main` base
+- none of them needs another slice in that same wave-dir to land first
+
 ## Two Common Flows
 
 ### Parallel-Safe Flat Batch
