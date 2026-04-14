@@ -196,7 +196,8 @@ Prompt assembly should stay simple:
 - keep the built-in prompt single-slice and repo-agnostic
 - the built-in prompt may direct the worker through a bounded workflow such as:
   pre-plan checkpoint, `$plan-author-review-loop`,
-  `$implementation-new-branch-pr`, and GitHub Codex review polling
+  `$implementation-new-branch-pr`, and GitHub Codex review polling every 60
+  seconds for up to 20 minutes per PR head
 - the built-in prompt may merge the PR when the repo workflow allows it, but
   only after a GitHub Codex review comment for the current PR head begins with
   `Codex Review: Didn't find any major issues.`

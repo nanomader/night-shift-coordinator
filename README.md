@@ -430,7 +430,7 @@ By default, NSC:
   - a repo-context pre-plan checkpoint
   - `$plan-author-review-loop`
   - `$implementation-new-branch-pr`
-  - bounded GitHub Codex review polling
+  - GitHub Codex review polling every 60 seconds for up to 20 minutes per PR head
 
 You can replace the built-in prompt with `--prompt-template <path>`.
 
@@ -438,8 +438,9 @@ Built-in prompt:
 
 - good when you want NSC to encourage a specific Night Shift execution style
 - assumes a single-slice flow with planning, implementation, PR creation,
-  bounded review polling, and merge only after a GitHub Codex review comment
-  begins with `Codex Review: Didn't find any major issues.`
+  review polling every 60 seconds for up to 20 minutes per PR head, and merge
+  only after a GitHub Codex review comment begins with
+  `Codex Review: Didn't find any major issues.`
 
 Custom prompt:
 
