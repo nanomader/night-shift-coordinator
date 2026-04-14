@@ -31,7 +31,27 @@ impl RecordingOutput {
 impl OutputSink for RecordingOutput {
     fn emit(&mut self, event: OutputEvent<'_>) {
         let line = match event {
-            OutputEvent::WaveRootSummary { total_wave_dirs } => format!("waves:{total_wave_dirs}"),
+            OutputEvent::ProgramRootSummary { total_wave_roots } => {
+                format!("program-waves:{total_wave_roots}")
+            }
+            OutputEvent::WaveDirRootSummary { total_wave_dirs } => {
+                format!("wave-dirs:{total_wave_dirs}")
+            }
+            OutputEvent::WaveRootStarting { index, total, name } => {
+                format!("wave-root-start:{index}/{total}:{name}")
+            }
+            OutputEvent::WaveRootFinished {
+                index,
+                total,
+                name,
+                result,
+            } => format!("wave-root-finished:{index}/{total}:{name}:{result}"),
+            OutputEvent::WaveRootStopped {
+                index,
+                total,
+                name,
+                reason,
+            } => format!("wave-root-stopped:{index}/{total}:{name}:{reason}"),
             OutputEvent::WaveDirStarting { index, total, name } => {
                 format!("wave-start:{index}/{total}:{name}")
             }
@@ -149,7 +169,7 @@ async fn wave_dirs_run_in_order_and_unlock_after_success() {
     run(
         SupervisorOptions {
             repo_root: repo.path().to_path_buf(),
-            slice_folder: root,
+            target_root: root,
             prompt_template: "prompt".to_string(),
             schedule: ScheduleMode::WaveDirs,
         },
@@ -169,7 +189,7 @@ async fn wave_dirs_run_in_order_and_unlock_after_success() {
             "waves/batch03_composer_test_phpunit/01_composer_test_phpunit.md".to_string(),
         ]
     );
-    assert!(lines.iter().any(|line| line == "waves:2"));
+    assert!(lines.iter().any(|line| line == "wave-dirs:2"));
     assert!(
         lines
             .iter()
@@ -222,7 +242,7 @@ async fn wave_dirs_stop_on_manual_followup_without_starting_next_wave() {
     let result = run(
         SupervisorOptions {
             repo_root: repo.path().to_path_buf(),
-            slice_folder: root,
+            target_root: root,
             prompt_template: "prompt".to_string(),
             schedule: ScheduleMode::WaveDirs,
         },
@@ -282,7 +302,7 @@ async fn wave_dirs_allow_parallel_slices_inside_one_wave_dir() {
     run(
         SupervisorOptions {
             repo_root: repo.path().to_path_buf(),
-            slice_folder: root,
+            target_root: root,
             prompt_template: "prompt".to_string(),
             schedule: ScheduleMode::WaveDirs,
         },

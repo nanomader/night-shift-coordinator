@@ -20,11 +20,12 @@ pub enum Command {
 pub enum ScheduleMode {
     Flat,
     WaveDirs,
+    WaveRoots,
 }
 
 #[derive(Debug, Clone, clap::Args)]
 pub struct RunArgs {
-    pub slice_folder: PathBuf,
+    pub target_root: PathBuf,
     #[arg(long)]
     pub prompt_template: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = ScheduleMode::Flat)]

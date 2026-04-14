@@ -40,6 +40,8 @@ NSC owns:
 
 - discovering slice markdown files in a batch folder
 - discovering ordered child wave-dirs when explicit scheduling mode requests it
+- discovering ordered child wave roots when explicit scheduling mode requests
+  it
 - validating prepared execution input early
 - launching up to 3 slice runs at a time
 - creating one worktree per running slice
@@ -85,7 +87,7 @@ NSC v1 uses a very small execution model.
   in parallel
 
 If true execution order matters, the user should split the work into separate
-batches or use the explicit `wave-dirs` scheduling mode.
+batches or use one of the explicit ordered scheduling modes.
 NSC v1 does not infer dependency graphs or overlap rules.
 
 Flat-batch membership is static for one run.
@@ -101,6 +103,17 @@ Explicit ordered-root scheduling policy:
 - NSC unlocks the next wave-dir only after merged-success marker parsing plus
   remote `origin/main` verification
 
+Explicit ordered program scheduling policy:
+
+- `nsc run <program-root> --schedule wave-roots`
+- immediate child `waveNN_*` directories are wave-root boundaries
+- one sibling wave root runs at a time
+- each wave root reuses the existing `wave-dirs` behavior unchanged
+- NSC fetches `origin/main` between wave roots
+- NSC also still fetches between wave-dirs inside each wave root
+- NSC unlocks the next wave root only after the current wave root fully
+  satisfies the existing `wave-dirs` merged-success contract
+
 ## CLI Surface
 
 Recommended v1 CLI:
@@ -109,16 +122,18 @@ Recommended v1 CLI:
 nsc run <slice-folder>
 nsc run <slice-folder> --prompt-template <path>
 nsc run <wave-root> --schedule wave-dirs
+nsc run <program-root> --schedule wave-roots
 nsc debug <slice-folder>
 nsc debug <slice-folder> --prompt-template <path>
 nsc debug <wave-root> --schedule wave-dirs
+nsc debug <program-root> --schedule wave-roots
 ```
 
 Simple rule:
 
 - NSC runs from the target repository root
-- the slice folder is the primary required input
-- the slice folder must resolve inside that repository root in v1
+- the target path is the primary required input
+- the target path must resolve inside that repository root in v1
 - prompt override is optional
 - explicit scheduling policy is optional
 - `debug` is the only extra top-level command in v1 and only changes output
@@ -166,6 +181,9 @@ Startup rule:
 - flat-batch membership should be frozen from that startup scan
 - for `wave-dirs`, sibling wave-dirs should be frozen at startup and slice
   membership should be frozen when each wave-dir begins
+- for `wave-roots`, sibling wave roots should be frozen at startup and each
+  wave root should still freeze its own child wave-dir and slice discovery
+  under the current `wave-dirs` rules
 
 Execution-truth rule:
 
@@ -266,6 +284,8 @@ Base-freezing rule:
   flat-batch worktrees from that SHA
 - `wave-dirs` mode should resolve one exact commit SHA per wave-dir and create
   all worktrees in that wave-dir from that SHA
+- `wave-roots` mode should invoke `wave-dirs` fresh for each wave root, so each
+  wave root keeps the existing per-wave-dir base-refresh behavior inside it
 - NSC should validate slice existence against that resolved SHA before launch
 
 Recommended repo-local layout:
