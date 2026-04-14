@@ -502,8 +502,8 @@ NSC writes plain terminal output for a human operator.
 
 Use `nsc run ...` for the quieter default output.
 
-Use `nsc debug ...` when you want extra lifecycle lines while a slice is still
-running.
+Use `nsc debug ...` when you want extra lifecycle lines and coarse prompt
+phases while a slice is still running.
 
 Example shape:
 
@@ -549,7 +549,9 @@ Starting 1 slices: 01_vendor_bin_phpunit
 [01_vendor_bin_phpunit] running
   thread_id: thread-123
   worktree: /repo/.nsc/worktrees/20260412-220501/01_vendor_bin_phpunit
-[01_vendor_bin_phpunit] still running (60s elapsed)
+[01_vendor_bin_phpunit] phase: planning
+[01_vendor_bin_phpunit] phase: implementing
+[01_vendor_bin_phpunit] phase: waiting for review
 ```
 
 Meaning of the main runtime lines:
@@ -565,8 +567,9 @@ Meaning of the main runtime lines:
 - `Run stopped`:
   a later internal failure stopped the current run after startup had already
   succeeded
-- `starting`, `running`, `still running`:
+- `starting`, `running`, `phase: ...`:
   debug-only lifecycle lines shown by `nsc debug ...`
+  when the prompt emits `NSC_PROGRESS:` markers
 
 ## Runtime Files
 
@@ -588,6 +591,7 @@ Recovery JSON is intentionally small. It stores:
 - `worktree_path`
 - `thread_id`
 - `status`
+- optional `progress`
 
 This is for manual recovery only. It is not a restart system.
 

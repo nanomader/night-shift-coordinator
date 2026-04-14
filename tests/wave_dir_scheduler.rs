@@ -14,7 +14,7 @@ use night_shift_coordinator::error::Result;
 use night_shift_coordinator::output::{OutputEvent, OutputSink};
 use night_shift_coordinator::supervisor::{SupervisorOptions, run};
 use tempfile::TempDir;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 struct RecordingOutput {
     lines: Arc<Mutex<Vec<String>>>,
@@ -51,7 +51,9 @@ impl OutputSink for RecordingOutput {
             OutputEvent::SliceStarting { label } => format!("starting:{label}"),
             OutputEvent::SliceFinishedNormally { label, .. } => format!("finished:{label}"),
             OutputEvent::SliceRunning { label, .. } => format!("running:{label}"),
-            OutputEvent::SliceStillRunning { label, .. } => format!("heartbeat:{label}"),
+            OutputEvent::SliceProgress { label, phase } => {
+                format!("phase:{label}:{}", phase.as_display_str())
+            }
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
@@ -87,9 +89,11 @@ impl AppServerClient for FakeAppServerClient {
             .push(request.slice_repo_relative_path.display().to_string());
         let outcome = self.outcomes.lock().unwrap().pop_front().unwrap();
         let (tx, rx) = oneshot::channel();
+        let (_progress_tx, progress_rx) = mpsc::unbounded_channel();
         let _ = tx.send(Ok(outcome));
         Ok(StartedRun {
             thread_id: format!("thread-{}", self.start_count.load(Ordering::SeqCst)),
+            progress_updates: progress_rx,
             completion: rx,
         })
     }

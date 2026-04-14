@@ -2,6 +2,7 @@ use std::fs;
 
 use night_shift_coordinator::recovery::{RecoveryRecord, recovery_path, write_record};
 use night_shift_coordinator::slice::SliceStatus;
+use night_shift_coordinator::terminal_result::ProgressPhase;
 use tempfile::TempDir;
 
 #[test]
@@ -12,6 +13,7 @@ fn writes_fixed_recovery_json_shape() {
         worktree_path: ".nsc/worktrees/run/01_slice".to_string(),
         thread_id: Some("thread-123".to_string()),
         status: SliceStatus::Running,
+        progress: Some(ProgressPhase::Implementing),
     };
 
     let path = write_record(temp.path(), "run", "01_slice", &record).unwrap();
@@ -25,7 +27,8 @@ fn writes_fixed_recovery_json_shape() {
             "slice_file_path": "slices/01_slice.md",
             "worktree_path": ".nsc/worktrees/run/01_slice",
             "thread_id": "thread-123",
-            "status": "running"
+            "status": "running",
+            "progress": "implementing"
         })
     );
 }

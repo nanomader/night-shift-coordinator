@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::app_server::{AppServerClient, RunSliceRequest, StartedRun, TerminalRunOutcome};
 use crate::batch::discover_startup_candidates;
@@ -9,7 +9,7 @@ use crate::error::{NscError, Result};
 use crate::output::{OutputEvent, OutputSink};
 use crate::recovery::{RecoveryRecord, write_record};
 use crate::slice::{MAX_PARALLEL_SLICES, SliceCandidate, SliceStatus};
-use crate::terminal_result::{TerminalResultKind, parse_terminal_result_markers};
+use crate::terminal_result::{ProgressPhase, TerminalResultKind, parse_terminal_result_markers};
 use crate::wave_dirs::discover_wave_dirs;
 use crate::worktree::{
     base_ref_contains_repo_relative_path, create_worktree, origin_main_contains_commit,
@@ -36,9 +36,16 @@ struct RunningSlice {
     slice_file_path: PathBuf,
     worktree_path: PathBuf,
     thread_id: String,
-    started_at: Instant,
-    last_progress_log_at: Instant,
+    latest_progress: Option<ProgressPhase>,
+    progress_updates: tokio::sync::mpsc::UnboundedReceiver<ProgressPhase>,
     completion: tokio::sync::oneshot::Receiver<Result<TerminalRunOutcome>>,
+}
+
+#[derive(Debug, Clone)]
+struct RecoveryState {
+    thread_id: Option<String>,
+    status: SliceStatus,
+    progress: Option<ProgressPhase>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,8 +64,6 @@ enum CompletedSliceOutcome {
     FinishedPromptOwned { terminal_message: String },
     AttentionNeeded { reason: String },
 }
-
-const PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 
 struct BatchExecutionContext<'a> {
     repo_root: &'a Path,
@@ -267,7 +272,7 @@ async fn run_flat_batch(
         if running.is_empty() {
             break;
         }
-        let (index, result) = wait_for_one(&mut running, output)
+        let (index, result) = wait_for_one(&options.repo_root, run_scope, &mut running, output)
             .await
             .map_err(BatchRunFailure::AfterLaunch)?;
         let finished = running.swap_remove(index);
@@ -332,8 +337,11 @@ async fn launch_available(
             &candidate.internal_label,
             &candidate.slice_file_path,
             &worktree_path,
-            None,
-            SliceStatus::Starting,
+            RecoveryState {
+                thread_id: None,
+                status: SliceStatus::Starting,
+                progress: None,
+            },
         )?;
 
         let request = RunSliceRequest {
@@ -347,17 +355,20 @@ async fn launch_available(
         match client.start_run(request).await {
             Ok(StartedRun {
                 thread_id,
+                progress_updates,
                 completion,
             }) => {
-                let now = Instant::now();
                 write_recovery(
                     context.repo_root,
                     context.run_scope,
                     &candidate.internal_label,
                     &candidate.slice_file_path,
                     &worktree_path,
-                    Some(thread_id.clone()),
-                    SliceStatus::Running,
+                    RecoveryState {
+                        thread_id: Some(thread_id.clone()),
+                        status: SliceStatus::Running,
+                        progress: None,
+                    },
                 )?;
                 output.emit(OutputEvent::SliceRunning {
                     label: &candidate.output_label,
@@ -370,8 +381,8 @@ async fn launch_available(
                     slice_file_path: candidate.slice_file_path,
                     worktree_path,
                     thread_id,
-                    started_at: now,
-                    last_progress_log_at: now,
+                    latest_progress: None,
+                    progress_updates,
                     completion,
                 });
             }
@@ -382,8 +393,11 @@ async fn launch_available(
                     &candidate.internal_label,
                     &candidate.slice_file_path,
                     &worktree_path,
-                    None,
-                    SliceStatus::AttentionNeeded,
+                    RecoveryState {
+                        thread_id: None,
+                        status: SliceStatus::AttentionNeeded,
+                        progress: None,
+                    },
                 )?;
                 output.emit(OutputEvent::SliceNeedsAttention {
                     label: &candidate.output_label,
@@ -447,17 +461,34 @@ fn repo_relative_slice_path(repo_root: &Path, slice_path: &Path) -> Result<PathB
 }
 
 async fn wait_for_one(
+    repo_root: &Path,
+    run_scope: &str,
     running: &mut [RunningSlice],
     output: &mut dyn OutputSink,
 ) -> Result<(usize, Result<TerminalRunOutcome>)> {
     loop {
         for (index, slice) in running.iter_mut().enumerate() {
-            if slice.last_progress_log_at.elapsed() >= PROGRESS_HEARTBEAT_INTERVAL {
-                output.emit(OutputEvent::SliceStillRunning {
+            while let Ok(progress) = slice.progress_updates.try_recv() {
+                if slice.latest_progress == Some(progress) {
+                    continue;
+                }
+                slice.latest_progress = Some(progress);
+                write_recovery(
+                    repo_root,
+                    run_scope,
+                    &slice.internal_label,
+                    &slice.slice_file_path,
+                    &slice.worktree_path,
+                    RecoveryState {
+                        thread_id: Some(slice.thread_id.clone()),
+                        status: SliceStatus::Running,
+                        progress: slice.latest_progress,
+                    },
+                )?;
+                output.emit(OutputEvent::SliceProgress {
                     label: &slice.output_label,
-                    elapsed_seconds: slice.started_at.elapsed().as_secs(),
+                    phase: progress,
                 });
-                slice.last_progress_log_at = Instant::now();
             }
             match slice.completion.try_recv() {
                 Ok(result) => return Ok((index, result)),
@@ -486,8 +517,11 @@ fn handle_terminal_result(
                 &finished.internal_label,
                 &finished.slice_file_path,
                 &finished.worktree_path,
-                Some(finished.thread_id.clone()),
-                SliceStatus::FinishedPromptOwned,
+                RecoveryState {
+                    thread_id: Some(finished.thread_id.clone()),
+                    status: SliceStatus::FinishedPromptOwned,
+                    progress: finished.latest_progress,
+                },
             )?;
             output.emit(OutputEvent::SliceFinishedNormally {
                 label: &finished.output_label,
@@ -507,8 +541,11 @@ fn handle_terminal_result(
                 &finished.internal_label,
                 &finished.slice_file_path,
                 &finished.worktree_path,
-                Some(finished.thread_id.clone()),
-                SliceStatus::AttentionNeeded,
+                RecoveryState {
+                    thread_id: Some(finished.thread_id.clone()),
+                    status: SliceStatus::AttentionNeeded,
+                    progress: finished.latest_progress,
+                },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
                 label: &finished.output_label,
@@ -528,8 +565,11 @@ fn handle_terminal_result(
                 &finished.internal_label,
                 &finished.slice_file_path,
                 &finished.worktree_path,
-                Some(finished.thread_id.clone()),
-                SliceStatus::AttentionNeeded,
+                RecoveryState {
+                    thread_id: Some(finished.thread_id.clone()),
+                    status: SliceStatus::AttentionNeeded,
+                    progress: finished.latest_progress,
+                },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
                 label: &finished.output_label,
@@ -622,8 +662,7 @@ fn write_recovery(
     label: &str,
     slice_file_path: &Path,
     worktree_path: &Path,
-    thread_id: Option<String>,
-    status: SliceStatus,
+    state: RecoveryState,
 ) -> Result<()> {
     write_record(
         repo_root,
@@ -632,8 +671,9 @@ fn write_recovery(
         &RecoveryRecord {
             slice_file_path: slice_file_path.display().to_string(),
             worktree_path: worktree_path.display().to_string(),
-            thread_id,
-            status,
+            thread_id: state.thread_id,
+            status: state.status,
+            progress: state.progress,
         },
     )?;
     Ok(())

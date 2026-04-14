@@ -13,8 +13,9 @@ use night_shift_coordinator::cli::ScheduleMode;
 use night_shift_coordinator::error::Result;
 use night_shift_coordinator::output::{OutputEvent, OutputSink};
 use night_shift_coordinator::supervisor::{SupervisorOptions, run};
+use night_shift_coordinator::terminal_result::ProgressPhase;
 use tempfile::TempDir;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::LocalSet;
 
 struct RecordingOutput {
@@ -52,7 +53,9 @@ impl OutputSink for RecordingOutput {
             OutputEvent::SliceStarting { label } => format!("starting:{label}"),
             OutputEvent::SliceFinishedNormally { label, .. } => format!("finished:{label}"),
             OutputEvent::SliceRunning { label, .. } => format!("running:{label}"),
-            OutputEvent::SliceStillRunning { label, .. } => format!("heartbeat:{label}"),
+            OutputEvent::SliceProgress { label, phase } => {
+                format!("phase:{label}:{}", phase.as_display_str())
+            }
             OutputEvent::SliceNeedsAttention { label, .. } => format!("attention:{label}"),
             OutputEvent::Warning { message } => format!("warning:{message}"),
             OutputEvent::FatalStartupFailure { message } => format!("fatal:{message}"),
@@ -79,8 +82,10 @@ impl AppServerClient for ImmediateClient {
     async fn start_run(&self, _request: RunSliceRequest) -> Result<StartedRun> {
         self.start_count.fetch_add(1, Ordering::SeqCst);
         let (_tx, rx) = oneshot::channel();
+        let (_progress_tx, progress_rx) = mpsc::unbounded_channel();
         Ok(StartedRun {
             thread_id: "thread-unused".to_string(),
+            progress_updates: progress_rx,
             completion: rx,
         })
     }
@@ -89,6 +94,7 @@ impl AppServerClient for ImmediateClient {
 struct ControlledClient {
     start_count: Arc<AtomicUsize>,
     completions: Arc<Mutex<Vec<oneshot::Sender<Result<TerminalRunOutcome>>>>>,
+    progress_senders: Arc<Mutex<Vec<mpsc::UnboundedSender<ProgressPhase>>>>,
     worktree_paths: Arc<Mutex<Vec<std::path::PathBuf>>>,
 }
 
@@ -97,6 +103,7 @@ impl ControlledClient {
         Self {
             start_count: Arc::new(AtomicUsize::new(0)),
             completions: Arc::new(Mutex::new(Vec::new())),
+            progress_senders: Arc::new(Mutex::new(Vec::new())),
             worktree_paths: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -105,6 +112,11 @@ impl ControlledClient {
         let sender = self.completions.lock().unwrap().remove(0);
         let _ = sender.send(Ok(outcome));
     }
+
+    fn send_progress(&self, phase: ProgressPhase) {
+        let sender = self.progress_senders.lock().unwrap()[0].clone();
+        let _ = sender.send(phase);
+    }
 }
 
 #[async_trait]
@@ -112,13 +124,16 @@ impl AppServerClient for ControlledClient {
     async fn start_run(&self, request: RunSliceRequest) -> Result<StartedRun> {
         let run_id = self.start_count.fetch_add(1, Ordering::SeqCst) + 1;
         let (tx, rx) = oneshot::channel();
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         self.completions.lock().unwrap().push(tx);
+        self.progress_senders.lock().unwrap().push(progress_tx);
         self.worktree_paths
             .lock()
             .unwrap()
             .push(request.worktree_path);
         Ok(StartedRun {
             thread_id: format!("thread-{run_id}"),
+            progress_updates: progress_rx,
             completion: rx,
         })
     }
@@ -256,6 +271,109 @@ async fn wave_dir_membership_is_frozen_once_the_wave_starts() {
             assert_eq!(start_count.load(Ordering::SeqCst), 1);
         })
         .await;
+}
+
+#[tokio::test]
+async fn progress_markers_update_debug_output_and_recovery() {
+    let repo = init_repo_with_origin();
+    let slice_dir = repo.path().join("slices");
+    fs::create_dir_all(&slice_dir).unwrap();
+    fs::write(slice_dir.join("01_first.md"), "slice").unwrap();
+    commit_and_push(repo.path(), ["slices/01_first.md"], "add first slice");
+
+    let client = Arc::new(ControlledClient::new());
+    let start_count = Arc::clone(&client.start_count);
+    let output = RecordingOutput::new();
+    let lines = Arc::clone(&output.lines);
+    let repo_root = repo.path().to_path_buf();
+    let run_slice_dir = slice_dir.clone();
+    let run_client = Arc::clone(&client);
+    let local = LocalSet::new();
+
+    local
+        .run_until(async move {
+            let handle = tokio::task::spawn_local(async move {
+                let mut output = RecordingOutput { lines };
+                run(
+                    SupervisorOptions {
+                        repo_root: repo_root.clone(),
+                        slice_folder: run_slice_dir,
+                        prompt_template: "prompt".to_string(),
+                        schedule: ScheduleMode::Flat,
+                    },
+                    run_client.as_ref(),
+                    &mut output,
+                )
+                .await
+            });
+
+            wait_for(|| start_count.load(Ordering::SeqCst) == 1).await;
+            client.send_progress(ProgressPhase::Planning);
+            client.send_progress(ProgressPhase::Planning);
+            client.send_progress(ProgressPhase::WaitingForReview);
+            wait_for(|| {
+                output
+                    .lines
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|line| line == "phase:01_first:waiting_for_review")
+            })
+            .await;
+
+            client.complete_one(TerminalRunOutcome::FinishedPromptOwned {
+                terminal_message: "done".to_string(),
+            });
+
+            handle.await.unwrap().unwrap();
+
+            let lines = output.lines.lock().unwrap().clone();
+            assert!(lines.iter().any(|line| line == "phase:01_first:planning"));
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line == "phase:01_first:waiting_for_review")
+            );
+            assert_eq!(
+                lines
+                    .iter()
+                    .filter(|line| line.as_str() == "phase:01_first:planning")
+                    .count(),
+                1
+            );
+        })
+        .await;
+
+    let recovery_root = repo.path().join(".nsc").join("recovery");
+    let run_dir = fs::read_dir(&recovery_root)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry.file_type().unwrap().is_dir().then_some(entry.path())
+        })
+        .unwrap();
+    let recovery_file = fs::read_dir(run_dir)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".json")
+                .then_some(entry.path())
+        })
+        .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(recovery_file).unwrap()).unwrap();
+
+    assert_eq!(
+        value.get("progress"),
+        Some(&serde_json::json!("waiting_for_review"))
+    );
+    assert_eq!(
+        value.get("status"),
+        Some(&serde_json::json!("finished_prompt_owned"))
+    );
 }
 
 #[tokio::test]

@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use crate::terminal_result::ProgressPhase;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
     Normal,
@@ -43,9 +45,9 @@ pub enum OutputEvent<'a> {
         thread_id: &'a str,
         worktree_path: &'a Path,
     },
-    SliceStillRunning {
+    SliceProgress {
         label: &'a str,
-        elapsed_seconds: u64,
+        phase: ProgressPhase,
     },
     SliceNeedsAttention {
         label: &'a str,
@@ -180,13 +182,11 @@ fn render_event_lines(
                 stdout_lines.push(format!("  worktree: {}", worktree_path.display()));
             }
         }
-        OutputEvent::SliceStillRunning {
-            label,
-            elapsed_seconds,
-        } => {
+        OutputEvent::SliceProgress { label, phase } => {
             if mode == OutputMode::Debug {
                 stdout_lines.push(format!(
-                    "[{label}] still running ({elapsed_seconds}s elapsed)"
+                    "[{label}] phase: {}",
+                    phase.as_display_str().replace('_', " ")
                 ));
             }
         }
@@ -225,6 +225,8 @@ fn render_event_lines(
 mod tests {
     use std::path::Path;
 
+    use crate::terminal_result::ProgressPhase;
+
     use super::{OutputEvent, OutputMode, render_event_lines};
 
     #[test]
@@ -243,18 +245,18 @@ mod tests {
                 worktree_path: Path::new("/tmp/worktree"),
             },
         );
-        let heartbeat = render_event_lines(
+        let phase = render_event_lines(
             OutputMode::Normal,
             false,
-            OutputEvent::SliceStillRunning {
+            OutputEvent::SliceProgress {
                 label: "01_slice",
-                elapsed_seconds: 60,
+                phase: ProgressPhase::Planning,
             },
         );
 
         assert!(starting.is_none());
         assert!(running.is_none());
-        assert!(heartbeat.is_none());
+        assert!(phase.is_none());
     }
 
     #[test]
@@ -275,12 +277,12 @@ mod tests {
             },
         )
         .unwrap();
-        let heartbeat = render_event_lines(
+        let phase = render_event_lines(
             OutputMode::Debug,
             false,
-            OutputEvent::SliceStillRunning {
+            OutputEvent::SliceProgress {
                 label: "01_slice",
-                elapsed_seconds: 60,
+                phase: ProgressPhase::WaitingForReview,
             },
         )
         .unwrap();
@@ -295,8 +297,8 @@ mod tests {
             ]
         );
         assert_eq!(
-            heartbeat.0,
-            vec!["[01_slice] still running (60s elapsed)".to_string()]
+            phase.0,
+            vec!["[01_slice] phase: waiting for review".to_string()]
         );
     }
 

@@ -9,3 +9,4 @@
 - 2026-04-13: Set explicit Codex App Server defaults to model `gpt-5.4` with reasoning effort `medium` from plan `done_docs/_done_nsc_gpt54_medium_defaults_plan.md`.
 - 2026-04-14: Extended the built-in GitHub Codex review polling window to 20 minutes with 60-second polls and documented the manual-follow-up timeout contract from plan `done_docs/_done_nsc_review_poll_window_plan.md`.
 - 2026-04-14: Shortened the built-in GitHub Codex review wait window to 10 minutes and added one same-head retry before manual follow-up from plan `done_docs/_done_nsc_review_retry_plan.md`.
+- 2026-04-14: Added prompt-driven `NSC_PROGRESS` phase tracking in debug mode, removed the periodic heartbeat output, and persisted the latest phase in recovery JSON from plan `done_docs/_done_nsc_progress_markers_plan.md`.

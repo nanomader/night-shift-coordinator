@@ -19,6 +19,19 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
         "built-in prompt must emit exact machine-readable markers for wave-dirs mode"
     );
     assert!(
+        BUILTIN_PROMPT_TEMPLATE.contains("NSC_PROGRESS: PLANNING")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_PROGRESS: IMPLEMENTING")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_PROGRESS: WAITING_FOR_REVIEW")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_PROGRESS: FIXING_REVIEW_FINDINGS")
+            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_PROGRESS: WAITING_FOR_MERGE"),
+        "built-in prompt must emit exact machine-readable progress markers"
+    );
+    assert!(
+        BUILTIN_PROMPT_TEMPLATE
+            .contains("Emit a progress line only when the phase actually changes."),
+        "built-in prompt must keep progress markers coarse and non-noisy"
+    );
+    assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("60 seconds")
             && BUILTIN_PROMPT_TEMPLATE.contains("10 minutes"),
         "built-in prompt must define the review polling interval and total window"
