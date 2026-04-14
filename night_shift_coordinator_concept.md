@@ -197,7 +197,8 @@ Prompt assembly should stay simple:
 - the built-in prompt may direct the worker through a bounded workflow such as:
   pre-plan checkpoint, `$plan-author-review-loop`,
   `$implementation-new-branch-pr`, and GitHub Codex review polling every 60
-  seconds for up to 20 minutes per PR head
+  seconds for up to 10 minutes, then one same-head retry and one second
+  10-minute poll window if needed
 - the built-in prompt may merge the PR when the repo workflow allows it, but
   only after a GitHub Codex review comment for the current PR head begins with
   `Codex Review: Didn't find any major issues.`
