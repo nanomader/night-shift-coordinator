@@ -449,9 +449,15 @@ By default, NSC:
   - repo-context pre-plan checkpoint
   - `$plan-author-review-loop`
   - `$implementation-new-branch-pr`
-  - GitHub Codex review polling every 60 seconds for up to 10 minutes
-  - one same-head retry if needed
-  - one second 10-minute poll window if needed
+  - GitHub Codex review polling per current PR head: every 60 seconds for up to
+    10 minutes
+  - one same-head retry if needed for that unchanged current PR head
+  - one second 10-minute poll window if needed for that unchanged current PR
+    head
+
+If a follow-up push creates a new PR head, the built-in prompt restarts that
+same head-scoped review cycle from zero for the new head rather than carrying
+forward elapsed wait time from the previous head.
 
 You can replace the built-in prompt with `--prompt-template <path>`.
 

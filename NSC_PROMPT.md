@@ -74,6 +74,13 @@ Workflow:
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
    every 60 seconds for up to 10 minutes total for the first review window.
+   That review-wait budget is scoped to the current PR head, not to the whole
+   PR lifetime. A newly pushed PR head restarts the full head-scoped review
+   cycle from zero: first 10-minute window, then one same-head retry, then one
+   second 10-minute window if still needed.
+   Example: if head A gets a finding, you push head B, and head B is now the
+   current PR head, restart the full head-scoped review cycle for head B from
+   zero rather than carrying over elapsed wait time from head A.
    - after fixing a review finding on such an admitted launcher/entrypoint row,
      do one same-family invariant sweep before re-requesting review
    - do not patch only the literal review comment if sibling cases on the same
@@ -92,17 +99,25 @@ Workflow:
      - emit `NSC_EVENT: MERGE_STARTED`
      - merge the PR as part of this run
    - if the review is still pending or the clean no-findings comment is not yet
-     present, keep polling inside the first 10-minute window instead of stopping early
-   - if the first 10-minute window expires without an accepted head-scoped outcome,
+     present, keep polling inside the first 10-minute window for that current
+     PR head instead of stopping early
+   - if the first 10-minute window for the current PR head expires without an
+     accepted head-scoped outcome,
      - emit `NSC_EVENT: REVIEW_RETRY_POSTED`
      post exactly one second `@codex review` request on the same unchanged PR head
    - after that same-head retry, keep polling every 60 seconds for one second
-     10-minute window on that unchanged head
-   - emit `NSC_EVENT: REVIEW_POLLING_STARTED` again before that retry-window polling begins
-   - only after both 10-minute windows expire without the required clean comment,
-     stop and report manual follow-up needed instead of guessing
-   - missing review response after the retry path is a review-timeout/manual-follow-up
-     state, not a clean review result and not a content finding by itself
+     10-minute window on that same unchanged current PR head
+   - emit `NSC_EVENT: REVIEW_POLLING_STARTED` again before that retry-window
+     polling begins for that same unchanged current PR head
+   - if the required clean comment is still missing after both 10-minute windows
+     for that same unchanged current PR head, do one final immediate head-scoped
+     re-check before stopping
+   - only after that final immediate re-check still shows no required clean
+     comment for the current PR head, stop and report manual follow-up needed
+     instead of guessing
+   - missing review response after the retry path for the current PR head is a
+     review-timeout/manual-follow-up state, not a clean review result and not a
+     content finding by itself
 14. If the review findings require wider scope, a new Day Shift decision, or
     missing repo workflow support, stop and report that blocker instead of
     improvising.
@@ -132,12 +147,15 @@ Final message expectations:
 - report the latest review state you reached
 - report the main validation result
 - report any blocker or follow-up plainly
-- if manual follow-up is caused by exhausted review waiting, also report:
-  - total wait time used
+- if manual follow-up is caused by exhausted review waiting for the current PR
+  head, also report:
+  - total wait time used for the current PR head
   - last poll status
   - PR number
   - current PR head SHA
   - that one same-head retry was posted
+- if earlier PR heads had their own completed review cycles, do not fold that
+  earlier wait time into the current-head wait total
 - keep the `NSC_PROGRESS`, `NSC_EVENT`, and `NSC_RESULT` lines as exact
   standalone lines so NSC can parse them deterministically
 

@@ -45,19 +45,36 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("first review window")
-            && BUILTIN_PROMPT_TEMPLATE.contains("one second\n     10-minute window"),
-        "built-in prompt must describe the first and second review windows"
+            && BUILTIN_PROMPT_TEMPLATE.contains("one second\n     10-minute window")
+            && BUILTIN_PROMPT_TEMPLATE.contains("scoped to the current PR head")
+            && BUILTIN_PROMPT_TEMPLATE.contains("PR lifetime"),
+        "built-in prompt must describe the first and second review windows as head-scoped, not PR-scoped"
+    );
+    assert!(
+        BUILTIN_PROMPT_TEMPLATE
+            .contains("newly pushed PR head restarts the full head-scoped review")
+            && BUILTIN_PROMPT_TEMPLATE.contains("cycle from zero")
+            && BUILTIN_PROMPT_TEMPLATE.contains("carrying over elapsed wait time from head A"),
+        "built-in prompt must restart the review cycle from zero after a follow-up push creates a new head"
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains(
             "post exactly one second `@codex review` request on the same unchanged PR head"
-        ) && BUILTIN_PROMPT_TEMPLATE.contains("only after both 10-minute windows expire"),
+        ) && BUILTIN_PROMPT_TEMPLATE.contains("final immediate head-scoped")
+            && BUILTIN_PROMPT_TEMPLATE.contains("comment for the current PR head"),
         "built-in prompt must retry once on the same head before MANUAL_FOLLOWUP"
     );
     assert!(
-        BUILTIN_PROMPT_TEMPLATE
-            .contains("not a clean review result and not a content finding by itself"),
+        BUILTIN_PROMPT_TEMPLATE.contains("not a clean review result")
+            && BUILTIN_PROMPT_TEMPLATE.contains("not a")
+            && BUILTIN_PROMPT_TEMPLATE.contains("content finding by itself"),
         "built-in prompt must distinguish review timeout from real findings"
+    );
+    assert!(
+        BUILTIN_PROMPT_TEMPLATE.contains("total wait time used for the current PR head")
+            && BUILTIN_PROMPT_TEMPLATE.contains("do not fold that")
+            && BUILTIN_PROMPT_TEMPLATE.contains("current-head wait total"),
+        "built-in prompt must require current-head-scoped wait reporting in the final message"
     );
 }
 
