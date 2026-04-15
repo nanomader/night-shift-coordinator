@@ -12,3 +12,4 @@
 - 2026-04-14: Added prompt-driven `NSC_PROGRESS` phase tracking in debug mode, removed the periodic heartbeat output, and persisted the latest phase in recovery JSON from plan `done_docs/_done_nsc_progress_markers_plan.md`.
 - 2026-04-14: Added prompt-driven `NSC_EVENT` debug markers for review and merge milestones and persisted `progress_updated_at` in recovery JSON from plan `done_docs/_done_nsc_debug_events_plan.md`.
 - 2026-04-14: Added explicit `wave-roots` scheduling to compose ordered wave roots over existing `wave-dirs` behavior from plan `done_docs/_done_nsc_wave_roots_plan.md`.
+- 2026-04-15: Made NSC request Codex fast service tier explicitly at app-server launch and documented/tested that contract from plan `done_docs/_done_nsc_explicit_fast_service_tier_plan.md`.

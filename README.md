@@ -440,6 +440,7 @@ NSC ships with a built-in single-slice prompt in `NSC_PROMPT.md`.
 By default, NSC:
 
 - uses that built-in prompt
+- starts `codex app-server` with explicit fast service tier request
 - starts Codex App Server turns with model `gpt-5.4`
 - sets reasoning effort to `medium`
 - passes the assigned slice file path as a repo-relative path

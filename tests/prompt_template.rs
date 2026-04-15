@@ -64,9 +64,9 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
 #[test]
 fn builtin_prompt_requires_same_family_invariant_sweep_for_launcher_rows() {
     assert!(
-        BUILTIN_PROMPT_TEMPLATE.contains(
-            "if the slice adds, widens, or changes precedence of one admitted"
-        ) && BUILTIN_PROMPT_TEMPLATE.contains("launcher/entrypoint row")
+        BUILTIN_PROMPT_TEMPLATE
+            .contains("if the slice adds, widens, or changes precedence of one admitted")
+            && BUILTIN_PROMPT_TEMPLATE.contains("launcher/entrypoint row")
             && BUILTIN_PROMPT_TEMPLATE.contains("especially a newly highest-precedence row")
             && BUILTIN_PROMPT_TEMPLATE.contains("do not")
             && BUILTIN_PROMPT_TEMPLATE.contains("stop at the literal admitted argv"),
@@ -74,30 +74,28 @@ fn builtin_prompt_requires_same_family_invariant_sweep_for_launcher_rows() {
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("executable-bit requirements")
-            && BUILTIN_PROMPT_TEMPLATE.contains(
-                "tracked literal path vs resolved target trackedness"
-            )
+            && BUILTIN_PROMPT_TEMPLATE
+                .contains("tracked literal path vs resolved target trackedness")
             && BUILTIN_PROMPT_TEMPLATE.contains("symlink behavior")
             && BUILTIN_PROMPT_TEMPLATE.contains("untracked local state changing admission")
-            && BUILTIN_PROMPT_TEMPLATE.contains(
-                "artifact selector/evidence metadata matching the tracked evidence"
-            )
-            && BUILTIN_PROMPT_TEMPLATE.contains(
-                "precedence interactions with already-landed fallback rows"
-            )
-            && BUILTIN_PROMPT_TEMPLATE.contains(
-                "can convert a previously runnable\n       repo into a required failure"
-            ),
+            && BUILTIN_PROMPT_TEMPLATE
+                .contains("artifact selector/evidence metadata matching the tracked evidence")
+            && BUILTIN_PROMPT_TEMPLATE
+                .contains("precedence interactions with already-landed fallback rows")
+            && BUILTIN_PROMPT_TEMPLATE
+                .contains("can convert a previously runnable\n       repo into a required failure"),
         "built-in prompt must enumerate adjacent invariants for launcher-row changes"
     );
     assert!(
-        BUILTIN_PROMPT_TEMPLATE.contains(
-            "after fixing a review finding on such an admitted launcher/entrypoint row"
-        ) && BUILTIN_PROMPT_TEMPLATE.contains(
-            "do not patch only the literal review comment if sibling cases on the same"
-        ) && BUILTIN_PROMPT_TEMPLATE.contains(
-            "row could still violate determinism, debuggability, or the locked support"
-        ) && BUILTIN_PROMPT_TEMPLATE.contains("contract"),
+        BUILTIN_PROMPT_TEMPLATE
+            .contains("after fixing a review finding on such an admitted launcher/entrypoint row")
+            && BUILTIN_PROMPT_TEMPLATE.contains(
+                "do not patch only the literal review comment if sibling cases on the same"
+            )
+            && BUILTIN_PROMPT_TEMPLATE.contains(
+                "row could still violate determinism, debuggability, or the locked support"
+            )
+            && BUILTIN_PROMPT_TEMPLATE.contains("contract"),
         "built-in prompt must require the same-family sweep during review-fix loops too"
     );
 }
