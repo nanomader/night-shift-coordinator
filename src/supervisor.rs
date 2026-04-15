@@ -139,15 +139,7 @@ pub async fn run(
                     return Err(err);
                 }
             };
-            run_wave_root(
-                &options,
-                &run_scope,
-                None,
-                wave_dirs,
-                client,
-                output,
-            )
-            .await
+            run_wave_root(&options, &run_scope, None, wave_dirs, client, output).await
         }
         ScheduleMode::WaveRoots => run_program_root(&options, &run_scope, client, output).await,
     }
@@ -201,7 +193,8 @@ async fn run_program_root(
             client,
             output,
         )
-        .await {
+        .await
+        {
             Ok(()) => {
                 output.emit(OutputEvent::WaveRootFinished {
                     index: index + 1,
