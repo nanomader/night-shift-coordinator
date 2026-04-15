@@ -48,6 +48,21 @@ Workflow:
 8. Use `$implementation-new-branch-pr` to implement that plan on a new branch,
    run validation, push, open the PR, archive the plan, update task history,
    and post the required head-scoped `@codex review` request.
+   - if the slice adds, widens, or changes precedence of one admitted
+     launcher/entrypoint row, especially a newly highest-precedence row, do not
+     stop at the literal admitted argv
+   - before finalizing that implementation, audit same-family fail-closed
+     invariants for that row:
+     - executable-bit requirements
+     - tracked literal path vs resolved target trackedness
+     - symlink behavior
+     - untracked local state changing admission
+     - artifact selector/evidence metadata matching the tracked evidence
+       actually used for admission
+     - precedence interactions with already-landed fallback rows
+     - whether the new higher-precedence row can convert a previously runnable
+       repo into a required failure
+   - add or update targeted tests for those adjacent invariants when relevant
 9. Emit `NSC_PROGRESS: WAITING_FOR_REVIEW`.
 10. Emit `NSC_EVENT: REVIEW_POLLING_STARTED`.
 11. After that PR exists, poll the GitHub Codex review outcome for the current
@@ -59,6 +74,11 @@ Workflow:
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
    every 60 seconds for up to 10 minutes total for the first review window.
+   - after fixing a review finding on such an admitted launcher/entrypoint row,
+     do one same-family invariant sweep before re-requesting review
+   - do not patch only the literal review comment if sibling cases on the same
+     row could still violate determinism, debuggability, or the locked support
+     contract
    - emit `NSC_PROGRESS: FIXING_REVIEW_FINDINGS` before starting those fixes
    - emit `NSC_EVENT: FOLLOWUP_PUSHED` immediately after pushing the updated head
    - emit `NSC_PROGRESS: WAITING_FOR_REVIEW` again after pushing the new head
