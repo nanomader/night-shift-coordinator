@@ -17,7 +17,6 @@ use crate::terminal_result::{
 
 pub const DEFAULT_MODEL: &str = "gpt-5.4";
 pub const DEFAULT_REASONING_EFFORT: &str = "medium";
-pub const DEFAULT_SERVICE_TIER: &str = "fast";
 
 #[derive(Debug, Clone)]
 pub struct RunSliceRequest {
@@ -121,12 +120,10 @@ fn turn_start_params(cwd: String, thread_id: String, prompt_text: String) -> Val
     })
 }
 
-fn app_server_launch_args() -> [&'static str; 6] {
+fn app_server_launch_args() -> [&'static str; 4] {
     [
         "-c",
         "shell_environment_policy.inherit=all",
-        "-c",
-        "service_tier=\"fast\"",
         "app-server",
         "--listen=stdio://",
     ]
@@ -639,9 +636,9 @@ mod tests {
     use tokio::time::sleep;
 
     use super::{
-        DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, DEFAULT_SERVICE_TIER, RunSliceRequest, RunUpdate,
-        TerminalRunOutcome, app_server_launch_args, apply_run_timeout, build_prompt_text,
-        canonical_terminal_message, extract_run_updates, thread_start_params, turn_start_params,
+        DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, RunSliceRequest, RunUpdate, TerminalRunOutcome,
+        app_server_launch_args, apply_run_timeout, build_prompt_text, canonical_terminal_message,
+        extract_run_updates, thread_start_params, turn_start_params,
     };
     use crate::terminal_result::{DebugEvent, ProgressPhase};
 
@@ -776,19 +773,16 @@ mod tests {
     }
 
     #[test]
-    fn app_server_launch_args_include_explicit_fast_service_tier() {
+    fn app_server_launch_args_use_stdio_and_inherit_shell_environment() {
         assert_eq!(
             app_server_launch_args(),
             [
                 "-c",
                 "shell_environment_policy.inherit=all",
-                "-c",
-                "service_tier=\"fast\"",
                 "app-server",
                 "--listen=stdio://",
             ]
         );
-        assert_eq!(DEFAULT_SERVICE_TIER, "fast");
     }
 
     #[tokio::test]
