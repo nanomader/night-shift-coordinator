@@ -75,8 +75,10 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
         "built-in prompt must require current-head-scoped wait reporting in the final message"
     );
     assert!(
-        !BUILTIN_PROMPT_TEMPLATE.contains("@codex review"),
-        "built-in prompt must not require a manual Codex review request"
+        BUILTIN_PROMPT_TEMPLATE.contains("posting `@codex review`")
+            && BUILTIN_PROMPT_TEMPLATE.contains("request Codex review again")
+            && BUILTIN_PROMPT_TEMPLATE.contains("@codex review"),
+        "built-in prompt must explicitly request Codex review for each PR head"
     );
 }
 

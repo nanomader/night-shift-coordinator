@@ -45,9 +45,8 @@ Workflow:
    for this exact slice.
 7. Emit `NSC_PROGRESS: IMPLEMENTING`.
 8. Use `$implementation-new-branch-pr` to implement that plan on a new branch,
-   run validation, push, open the PR, and rely on the repo's automatic Codex
-   review trigger for that PR head while archiving the plan and updating task
-   history.
+   run validation, push, open the PR, and request Codex review for that PR
+   head while archiving the plan and updating task history.
    - if the slice adds, widens, or changes precedence of one admitted
      launcher/entrypoint row, especially a newly highest-precedence row, do not
      stop at the literal admitted argv
@@ -65,10 +64,11 @@ Workflow:
    - add or update targeted tests for those adjacent invariants when relevant
 9. Emit `NSC_PROGRESS: WAITING_FOR_REVIEW`.
 10. Emit `NSC_EVENT: REVIEW_POLLING_STARTED`.
-11. After that PR exists, poll the GitHub Codex review outcome for the current
-   PR head. If available in the environment, use `$pr-codex-review-poll`.
-   Poll every 60 seconds for up to 10 minutes total for the first review window
-   on the current PR head.
+11. After that PR exists, explicitly request Codex review on the current PR
+   head by posting `@codex review`, then poll the GitHub Codex review outcome
+   for that same PR head. If available in the environment, use
+   `$pr-codex-review-poll`. Poll every 60 seconds for up to 10 minutes total
+   for the first review window on the current PR head.
 12. If the review reports findings above LOW that clearly stay inside the same
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
@@ -88,6 +88,8 @@ Workflow:
      contract
    - emit `NSC_PROGRESS: FIXING_REVIEW_FINDINGS` before starting those fixes
    - emit `NSC_EVENT: FOLLOWUP_PUSHED` immediately after pushing the updated head
+   - explicitly request Codex review again on that new PR head by posting
+     `@codex review`
    - emit `NSC_PROGRESS: WAITING_FOR_REVIEW` again after pushing the new head
      and before resuming the review poll
    - emit `NSC_EVENT: REVIEW_POLLING_STARTED` again before that new review window

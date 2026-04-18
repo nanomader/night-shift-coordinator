@@ -219,11 +219,12 @@ By default, NSC:
 - passes the assigned slice file path as a repo-relative path
 - tells the worker to read that exact slice file before acting
 - follows a bounded single-slice workflow with planning, implementation,
-  validation, PR creation, review polling, and merge gating
+  validation, PR creation, explicit Codex review request, review polling, and
+  merge gating
 
 That default flow assumes the target repository environment can create pull
-requests, inspect GitHub Codex review state, and merge when the repo workflow
-allows it.
+requests, post `@codex review` on the PR, inspect GitHub Codex review state,
+and merge when the repo workflow allows it.
 
 You can replace the built-in prompt with:
 
