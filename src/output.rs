@@ -2,6 +2,8 @@ use std::path::Path;
 
 use crate::terminal_result::{DebugEvent, ProgressPhase};
 
+const PROGRAM_HEADER: &str = concat!("Night Shift Coordinator v", env!("CARGO_PKG_VERSION"));
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
     Normal,
@@ -135,7 +137,7 @@ fn render_event_lines(
     match event {
         OutputEvent::ProgramRootSummary { total_wave_roots } => {
             if !printed_header {
-                stdout_lines.push("Night Shift Coordinator v0.1.0".to_string());
+                stdout_lines.push(PROGRAM_HEADER.to_string());
                 stdout_lines.push(String::new());
                 next_printed_header = true;
             }
@@ -168,7 +170,7 @@ fn render_event_lines(
         }
         OutputEvent::WaveDirRootSummary { total_wave_dirs } => {
             if !printed_header {
-                stdout_lines.push("Night Shift Coordinator v0.1.0".to_string());
+                stdout_lines.push(PROGRAM_HEADER.to_string());
                 stdout_lines.push(String::new());
                 next_printed_header = true;
             }
@@ -202,7 +204,7 @@ fn render_event_lines(
             starting_labels,
         } => {
             if !printed_header {
-                stdout_lines.push("Night Shift Coordinator v0.1.0".to_string());
+                stdout_lines.push(PROGRAM_HEADER.to_string());
                 stdout_lines.push(String::new());
                 next_printed_header = true;
             }
@@ -289,7 +291,7 @@ mod tests {
 
     use crate::terminal_result::{DebugEvent, ProgressPhase};
 
-    use super::{OutputEvent, OutputMode, render_event_lines};
+    use super::{OutputEvent, OutputMode, PROGRAM_HEADER, render_event_lines};
 
     #[test]
     fn normal_mode_suppresses_debug_only_events() {
@@ -419,7 +421,7 @@ mod tests {
         assert_eq!(
             summary.0,
             vec![
-                "Night Shift Coordinator v0.1.0".to_string(),
+                PROGRAM_HEADER.to_string(),
                 String::new(),
                 "Found 3 wave-dirs in wave root".to_string(),
                 String::new()
@@ -473,7 +475,7 @@ mod tests {
         assert_eq!(
             summary.0,
             vec![
-                "Night Shift Coordinator v0.1.0".to_string(),
+                PROGRAM_HEADER.to_string(),
                 String::new(),
                 "Found 3 wave roots in program root".to_string(),
                 String::new()
