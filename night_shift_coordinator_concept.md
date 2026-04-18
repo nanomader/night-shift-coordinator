@@ -214,12 +214,15 @@ Prompt assembly should stay simple:
 - keep the built-in prompt single-slice and repo-agnostic
 - the built-in prompt may direct the worker through a bounded workflow such as:
   pre-plan checkpoint, `$plan-author-review-loop`,
-  `$implementation-new-branch-pr`, and GitHub Codex review polling per current
-  PR head every 60 seconds for up to 10 minutes, then one same-head retry and
-  one second 10-minute poll window if needed for that unchanged current PR head
+  `$implementation-new-branch-pr`, automatic GitHub Codex review on PR
+  creation and follow-up pushes, and GitHub Codex review polling per current PR
+  head every 60 seconds for up to 10 minutes with one final immediate
+  head-scoped re-check before manual follow-up if the clean review comment is
+  still missing
 - if a follow-up push creates a new PR head, the built-in prompt should restart
-  that same head-scoped review cycle from zero for the new head rather than
-  carry forward elapsed wait time from the earlier head
+  that same head-scoped review cycle from zero for the new head with a fresh
+  10-minute window rather than carry forward elapsed wait time from the earlier
+  head
 - the built-in prompt may emit exact standalone progress lines for debug-mode
   visibility:
   - `NSC_PROGRESS: PLANNING`
@@ -230,7 +233,6 @@ Prompt assembly should stay simple:
 - the built-in prompt may emit exact standalone workflow-event lines for
   debug-mode visibility:
   - `NSC_EVENT: REVIEW_POLLING_STARTED`
-  - `NSC_EVENT: REVIEW_RETRY_POSTED`
   - `NSC_EVENT: FOLLOWUP_PUSHED`
   - `NSC_EVENT: MERGE_STARTED`
 - those progress lines are informational only and must not affect scheduling or

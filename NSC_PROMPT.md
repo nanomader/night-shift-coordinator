@@ -26,7 +26,6 @@ Workflow:
   - `NSC_PROGRESS: WAITING_FOR_MERGE`
 - Use only this fixed event set:
   - `NSC_EVENT: REVIEW_POLLING_STARTED`
-  - `NSC_EVENT: REVIEW_RETRY_POSTED`
   - `NSC_EVENT: FOLLOWUP_PUSHED`
   - `NSC_EVENT: MERGE_STARTED`
 - Emit a progress line only when the phase actually changes.
@@ -46,8 +45,9 @@ Workflow:
    for this exact slice.
 7. Emit `NSC_PROGRESS: IMPLEMENTING`.
 8. Use `$implementation-new-branch-pr` to implement that plan on a new branch,
-   run validation, push, open the PR, archive the plan, update task history,
-   and post the required head-scoped `@codex review` request.
+   run validation, push, open the PR, and rely on the repo's automatic Codex
+   review trigger for that PR head while archiving the plan and updating task
+   history.
    - if the slice adds, widens, or changes precedence of one admitted
      launcher/entrypoint row, especially a newly highest-precedence row, do not
      stop at the literal admitted argv
@@ -73,14 +73,14 @@ Workflow:
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
-   every 60 seconds for up to 10 minutes total for the first review window.
+   every 60 seconds for up to 10 minutes total.
    That review-wait budget is scoped to the current PR head, not to the whole
    PR lifetime. A newly pushed PR head restarts the full head-scoped review
-   cycle from zero: first 10-minute window, then one same-head retry, then one
-   second 10-minute window if still needed.
+   cycle from zero with a fresh 10-minute window.
    Example: if head A gets a finding, you push head B, and head B is now the
    current PR head, restart the full head-scoped review cycle for head B from
-   zero rather than carrying over elapsed wait time from head A.
+   zero with its own fresh 10-minute window rather than carrying over elapsed
+   wait time from head A.
    - after fixing a review finding on such an admitted launcher/entrypoint row,
      do one same-family invariant sweep before re-requesting review
    - do not patch only the literal review comment if sibling cases on the same
@@ -101,23 +101,15 @@ Workflow:
    - if the review is still pending or the clean no-findings comment is not yet
      present, keep polling inside the first 10-minute window for that current
      PR head instead of stopping early
-   - if the first 10-minute window for the current PR head expires without an
-     accepted head-scoped outcome,
-     - emit `NSC_EVENT: REVIEW_RETRY_POSTED`
-     post exactly one second `@codex review` request on the same unchanged PR head
-   - after that same-head retry, keep polling every 60 seconds for one second
-     10-minute window on that same unchanged current PR head
-   - emit `NSC_EVENT: REVIEW_POLLING_STARTED` again before that retry-window
-     polling begins for that same unchanged current PR head
-   - if the required clean comment is still missing after both 10-minute windows
-     for that same unchanged current PR head, do one final immediate head-scoped
-     re-check before stopping
+   - if the first 10-minute window for the current PR head expires without the
+     required clean comment, do one final immediate head-scoped re-check before
+     stopping
    - only after that final immediate re-check still shows no required clean
      comment for the current PR head, stop and report manual follow-up needed
      instead of guessing
-   - missing review response after the retry path for the current PR head is a
-     review-timeout/manual-follow-up state, not a clean review result and not a
-     content finding by itself
+   - missing review response after the bounded wait window for the current PR
+     head is a review-timeout/manual-follow-up state, not a clean review result
+     and not a content finding by itself
 14. If the review findings require wider scope, a new Day Shift decision, or
     missing repo workflow support, stop and report that blocker instead of
     improvising.
@@ -153,7 +145,6 @@ Final message expectations:
   - last poll status
   - PR number
   - current PR head SHA
-  - that one same-head retry was posted
 - if earlier PR heads had their own completed review cycles, do not fold that
   earlier wait time into the current-head wait total
 - keep the `NSC_PROGRESS`, `NSC_EVENT`, and `NSC_RESULT` lines as exact

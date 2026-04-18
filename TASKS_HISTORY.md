@@ -14,3 +14,4 @@
 - 2026-04-14: Added explicit `wave-roots` scheduling to compose ordered wave roots over existing `wave-dirs` behavior from plan `done_docs/_done_nsc_wave_roots_plan.md`.
 - 2026-04-15: Made NSC request Codex fast service tier explicitly at app-server launch and documented/tested that contract from plan `done_docs/_done_nsc_explicit_fast_service_tier_plan.md`.
 - 2026-04-17: Removed the explicit Codex fast service tier override so NSC no longer forces `service_tier="fast"` at app-server launch.
+- 2026-04-18: Removed the built-in prompt's manual `@codex review` request and same-head retry path so NSC now relies on automatic Codex review triggers on PR creation and follow-up pushes while keeping the clean head-scoped merge gate.

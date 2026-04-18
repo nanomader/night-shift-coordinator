@@ -448,15 +448,16 @@ By default, NSC:
   - repo-context pre-plan checkpoint
   - `$plan-author-review-loop`
   - `$implementation-new-branch-pr`
+  - automatic GitHub Codex review on PR creation and follow-up pushes
   - GitHub Codex review polling per current PR head: every 60 seconds for up to
     10 minutes
-  - one same-head retry if needed for that unchanged current PR head
-  - one second 10-minute poll window if needed for that unchanged current PR
-    head
+  - one final immediate head-scoped re-check before manual follow-up if the
+    clean review comment is still missing
 
 If a follow-up push creates a new PR head, the built-in prompt restarts that
-same head-scoped review cycle from zero for the new head rather than carrying
-forward elapsed wait time from the previous head.
+same head-scoped review cycle from zero for the new head with a fresh
+10-minute window rather than carrying forward elapsed wait time from the
+previous head.
 
 You can replace the built-in prompt with `--prompt-template <path>`.
 
@@ -507,7 +508,6 @@ The built-in prompt may also emit exact standalone workflow-event lines:
 
 ```text
 NSC_EVENT: REVIEW_POLLING_STARTED
-NSC_EVENT: REVIEW_RETRY_POSTED
 NSC_EVENT: FOLLOWUP_PUSHED
 NSC_EVENT: MERGE_STARTED
 ```
@@ -516,7 +516,7 @@ These markers are also informational only.
 
 In debug mode they explain long quiet stretches more clearly than a generic
 heartbeat. For example, they tell you when a slice has started review polling,
-posted a same-head retry, pushed follow-up review fixes, or begun merge.
+pushed follow-up review fixes, or begun merge.
 
 ## Runtime Output
 
@@ -558,7 +558,6 @@ Starting 1 slices: 01_vendor_bin_phpunit
 [01_vendor_bin_phpunit] phase: implementing
 [01_vendor_bin_phpunit] phase: waiting for review
 [01_vendor_bin_phpunit] event: review polling started
-[01_vendor_bin_phpunit] event: review retry posted
 ```
 
 Meaning of the main runtime lines:
@@ -577,8 +576,8 @@ Meaning of the main runtime lines:
 - `starting`, `running`, `phase: ...`:
   debug-only lifecycle lines
 - `event: ...`:
-  debug-only workflow milestone lines such as review polling, retry posting,
-  follow-up push, and merge start
+  debug-only workflow milestone lines such as review polling, follow-up push,
+  and merge start
 
 ## Runtime Files
 
@@ -655,9 +654,9 @@ Wave-dirs problems:
 Result:
 
 - NSC stops before the next sibling wave-dir starts
-- if the stop reason is missing external Codex review response after the retry
-  window, that means review timing was incomplete, not that NSC proved the
-  slice itself was wrong
+- if the stop reason is missing external Codex review response after the
+  bounded wait window, that means review timing was incomplete, not that NSC
+  proved the slice itself was wrong
 
 ## Requirements
 

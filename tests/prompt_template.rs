@@ -28,7 +28,6 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: REVIEW_POLLING_STARTED")
-            && BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: REVIEW_RETRY_POSTED")
             && BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: FOLLOWUP_PUSHED")
             && BUILTIN_PROMPT_TEMPLATE.contains("NSC_EVENT: MERGE_STARTED"),
         "built-in prompt must emit exact machine-readable debug event markers"
@@ -45,24 +44,23 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("first review window")
-            && BUILTIN_PROMPT_TEMPLATE.contains("one second\n     10-minute window")
             && BUILTIN_PROMPT_TEMPLATE.contains("scoped to the current PR head")
             && BUILTIN_PROMPT_TEMPLATE.contains("PR lifetime"),
-        "built-in prompt must describe the first and second review windows as head-scoped, not PR-scoped"
+        "built-in prompt must describe the review window as head-scoped, not PR-scoped"
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE
             .contains("newly pushed PR head restarts the full head-scoped review")
             && BUILTIN_PROMPT_TEMPLATE.contains("cycle from zero")
-            && BUILTIN_PROMPT_TEMPLATE.contains("carrying over elapsed wait time from head A"),
+            && BUILTIN_PROMPT_TEMPLATE.contains("fresh 10-minute window")
+            && BUILTIN_PROMPT_TEMPLATE.contains("carrying over elapsed")
+            && BUILTIN_PROMPT_TEMPLATE.contains("wait time from head A"),
         "built-in prompt must restart the review cycle from zero after a follow-up push creates a new head"
     );
     assert!(
-        BUILTIN_PROMPT_TEMPLATE.contains(
-            "post exactly one second `@codex review` request on the same unchanged PR head"
-        ) && BUILTIN_PROMPT_TEMPLATE.contains("final immediate head-scoped")
+        BUILTIN_PROMPT_TEMPLATE.contains("final immediate head-scoped")
             && BUILTIN_PROMPT_TEMPLATE.contains("comment for the current PR head"),
-        "built-in prompt must retry once on the same head before MANUAL_FOLLOWUP"
+        "built-in prompt must do a final head-scoped re-check before MANUAL_FOLLOWUP"
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("not a clean review result")
@@ -75,6 +73,10 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
             && BUILTIN_PROMPT_TEMPLATE.contains("do not fold that")
             && BUILTIN_PROMPT_TEMPLATE.contains("current-head wait total"),
         "built-in prompt must require current-head-scoped wait reporting in the final message"
+    );
+    assert!(
+        !BUILTIN_PROMPT_TEMPLATE.contains("@codex review"),
+        "built-in prompt must not require a manual Codex review request"
     );
 }
 
