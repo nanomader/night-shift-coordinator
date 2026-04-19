@@ -1,5 +1,6 @@
 # Tasks History
 
+- 2026-04-19: Added repo-side release, CI, and packaging docs for future Homebrew tap distribution.
 - 2026-04-12: Implemented unreadable-slice admission checks, hung-run timeout handling, and repo-relative slice-path prompting.
 - 2026-04-12: Rewrote the built-in NSC single-slice prompt around the pre-plan checkpoint, `$plan-author-review-loop`, `$implementation-new-branch-pr`, and bounded GitHub Codex review polling.
 - 2026-04-12: Added a separate `debug` command so verbose slice lifecycle output stays opt-in.

@@ -6,6 +6,7 @@ description = "Local Rust CLI for supervising prepared Night Shift slice executi
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/nanomader/night-shift-coordinator"
+homepage = "https://github.com/nanomader/night-shift-coordinator"
 
 [[bin]]
 name = "nsc"

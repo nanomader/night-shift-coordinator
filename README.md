@@ -60,7 +60,7 @@ You also need:
 Install from this repository:
 
 ```bash
-cargo install --path . --force
+cargo install --path . --locked --force
 ```
 
 Verify:
@@ -76,6 +76,10 @@ You can also build without installing:
 cargo build --release
 ./target/release/nsc --help
 ```
+
+Homebrew tap packaging is planned, but it is not live from this repository yet.
+Until the tap exists, install from source with `cargo install --path . --locked
+--force`.
 
 ## Quick Start
 
@@ -417,6 +421,16 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
+
+## Packaging
+
+This repository is being prepared for a separate Homebrew tap.
+
+- target install after the tap exists: `brew install nanomader/tap/night-shift-coordinator`
+- plain `brew install night-shift-coordinator` is not a current promise
+- Homebrew will install the `nsc` binary only
+- runtime requirements such as `git`, `codex`, and GitHub review workflow
+  access remain explicit operator requirements
 
 ## Repo Docs
 
