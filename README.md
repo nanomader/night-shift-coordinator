@@ -424,10 +424,6 @@ cargo test
 - [AGENTS.md](AGENTS.md): contributor decision policy for everyday NSC work
 - [CONTRIBUTING.md](CONTRIBUTING.md): contribution workflow and repo expectations
 - [NSC_PROMPT.md](NSC_PROMPT.md): built-in worker prompt contract
-- [night_shift_coordinator_concept.md](night_shift_coordinator_concept.md):
-  original product boundary and v1 rationale
-- [nsc_wave_dirs_decision_memo.md](nsc_wave_dirs_decision_memo.md): reasoning
-  behind explicit ordered scheduling
 
 ## License
 

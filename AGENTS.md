@@ -185,10 +185,6 @@ When in doubt, keep the work local.
 - [`AGENTS.md`](AGENTS.md): contributor decision policy for everyday NSC work.
 - [`NSC_PROMPT.md`](NSC_PROMPT.md): built-in worker prompt and prompt-contract
   surface.
-- [`night_shift_coordinator_concept.md`](night_shift_coordinator_concept.md):
-  original product boundary and v1 rationale.
-- [`nsc_wave_dirs_decision_memo.md`](nsc_wave_dirs_decision_memo.md): reasoning
-  behind explicit ordered scheduling instead of inferred orchestration.
 - [`tests/`](tests): executable behavior truth for CLI, scheduling,
   execution-truth, recovery, and terminal result handling.
 
