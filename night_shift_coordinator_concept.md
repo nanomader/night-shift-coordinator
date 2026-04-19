@@ -216,12 +216,12 @@ Prompt assembly should stay simple:
   pre-plan checkpoint, `$plan-author-review-loop`,
   `$implementation-new-branch-pr`, automatic GitHub Codex review on PR
   creation and follow-up pushes, and GitHub Codex review polling per current PR
-  head every 60 seconds for up to 10 minutes with one final immediate
+  head every 60 seconds for up to 16 minutes with one final immediate
   head-scoped re-check before manual follow-up if the clean review comment is
   still missing
 - if a follow-up push creates a new PR head, the built-in prompt should restart
   that same head-scoped review cycle from zero for the new head with a fresh
-  10-minute window rather than carry forward elapsed wait time from the earlier
+  16-minute window rather than carry forward elapsed wait time from the earlier
   head
 - the built-in prompt may emit exact standalone progress lines for debug-mode
   visibility:

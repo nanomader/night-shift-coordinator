@@ -67,19 +67,19 @@ Workflow:
 11. After that PR exists, explicitly request Codex review on the current PR
    head by posting `@codex review`, then poll the GitHub Codex review outcome
    for that same PR head. If available in the environment, use
-   `$pr-codex-review-poll`. Poll every 60 seconds for up to 10 minutes total
+   `$pr-codex-review-poll`. Poll every 60 seconds for up to 16 minutes total
    for the first review window on the current PR head.
 12. If the review reports findings above LOW that clearly stay inside the same
    slice, fix them on the same branch and PR, rerun the required validation,
    push the updated head, and poll the GitHub Codex review outcome once more for
    the new head. For that new PR head, apply the same review-polling policy:
-   every 60 seconds for up to 10 minutes total.
+   every 60 seconds for up to 16 minutes total.
    That review-wait budget is scoped to the current PR head, not to the whole
    PR lifetime. A newly pushed PR head restarts the full head-scoped review
-   cycle from zero with a fresh 10-minute window.
+   cycle from zero with a fresh 16-minute window.
    Example: if head A gets a finding, you push head B, and head B is now the
    current PR head, restart the full head-scoped review cycle for head B from
-   zero with its own fresh 10-minute window rather than carrying over elapsed
+   zero with its own fresh 16-minute window rather than carrying over elapsed
    wait time from head A.
    - after fixing a review finding on such an admitted launcher/entrypoint row,
      do one same-family invariant sweep before re-requesting review
@@ -101,9 +101,9 @@ Workflow:
      - emit `NSC_EVENT: MERGE_STARTED`
      - merge the PR as part of this run
    - if the review is still pending or the clean no-findings comment is not yet
-     present, keep polling inside the first 10-minute window for that current
+     present, keep polling inside the first 16-minute window for that current
      PR head instead of stopping early
-   - if the first 10-minute window for the current PR head expires without the
+   - if the first 16-minute window for the current PR head expires without the
      required clean comment, do one final immediate head-scoped re-check before
      stopping
    - only after that final immediate re-check still shows no required clean

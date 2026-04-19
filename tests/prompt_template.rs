@@ -39,7 +39,7 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
     );
     assert!(
         BUILTIN_PROMPT_TEMPLATE.contains("60 seconds")
-            && BUILTIN_PROMPT_TEMPLATE.contains("10 minutes"),
+            && BUILTIN_PROMPT_TEMPLATE.contains("16 minutes"),
         "built-in prompt must define the review polling interval and total window"
     );
     assert!(
@@ -52,7 +52,7 @@ fn builtin_prompt_contains_explicit_merge_gate_phrase() {
         BUILTIN_PROMPT_TEMPLATE
             .contains("newly pushed PR head restarts the full head-scoped review")
             && BUILTIN_PROMPT_TEMPLATE.contains("cycle from zero")
-            && BUILTIN_PROMPT_TEMPLATE.contains("fresh 10-minute window")
+            && BUILTIN_PROMPT_TEMPLATE.contains("fresh 16-minute window")
             && BUILTIN_PROMPT_TEMPLATE.contains("carrying over elapsed")
             && BUILTIN_PROMPT_TEMPLATE.contains("wait time from head A"),
         "built-in prompt must restart the review cycle from zero after a follow-up push creates a new head"
