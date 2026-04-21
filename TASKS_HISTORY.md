@@ -18,3 +18,4 @@
 - 2026-04-18: Removed the built-in prompt's manual `@codex review` request and same-head retry path so NSC now relies on automatic Codex review triggers on PR creation and follow-up pushes while keeping the clean head-scoped merge gate.
 - 2026-04-21: Raised the explicit Codex App Server default reasoning effort from `medium` to `high`.
 - 2026-04-22: Clarified finished-slice recovery and output truth by persisting terminal-result metadata in recovery and rendering a normalized completion summary, following `_done_PLAN_nsc_terminal_recovery_truth_20260422.md`.
+- 2026-04-22: Hardened malformed finished-turn terminal-marker handling so NSC records attention-needed recovery breadcrumbs instead of leaving stale running state, following `_done_PLAN_nsc_invalid_terminal_marker_attention_20260422.md`.

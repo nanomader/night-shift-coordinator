@@ -373,6 +373,9 @@ This is for manual recovery only. It is not a restart system.
 For finished slices, terminal truth is the finished status plus any parsed
 terminal-result metadata above. `progress` remains informational only and may
 still show the last observed phase such as `waiting_for_merge`.
+Malformed terminal markers from an otherwise finished prompt-owned turn are
+reported as `needs attention` and persist terminal recovery breadcrumbs rather
+than leaving stale running state behind.
 
 When a slice needs attention, NSC surfaces the slice label, reason, worktree
 path, and thread id when available. That is enough context to inspect the

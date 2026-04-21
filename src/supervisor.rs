@@ -641,7 +641,38 @@ fn handle_terminal_result(
 ) -> Result<CompletedSlice> {
     match result {
         Ok(TerminalRunOutcome::FinishedPromptOwned { terminal_message }) => {
-            let terminal_markers = parse_terminal_result_markers(&terminal_message)?;
+            let terminal_markers = match parse_terminal_result_markers(&terminal_message) {
+                Ok(markers) => markers,
+                Err(NscError::InvalidTerminalResult(reason)) => {
+                    let reason = format!("invalid terminal result markers: {reason}");
+                    write_recovery(
+                        repo_root,
+                        run_scope,
+                        &finished.internal_label,
+                        &finished.slice_file_path,
+                        &finished.worktree_path,
+                        RecoveryState {
+                            thread_id: Some(finished.thread_id.clone()),
+                            status: SliceStatus::AttentionNeeded,
+                            progress: finished.latest_progress,
+                            progress_updated_at: finished.latest_progress_updated_at,
+                            terminal_markers: None,
+                            completed_at: Some(completed_at_now()?),
+                        },
+                    )?;
+                    output.emit(OutputEvent::SliceNeedsAttention {
+                        label: &finished.output_label,
+                        thread_id: Some(&finished.thread_id),
+                        worktree_path: &finished.worktree_path,
+                        reason: &reason,
+                    });
+                    return Ok(CompletedSlice {
+                        output_label: finished.output_label,
+                        outcome: CompletedSliceOutcome::AttentionNeeded { reason },
+                    });
+                }
+                Err(err) => return Err(err),
+            };
             write_recovery(
                 repo_root,
                 run_scope,
