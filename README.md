@@ -219,7 +219,7 @@ By default, NSC:
 
 - uses that built-in prompt
 - starts Codex App Server turns with model `gpt-5.4`
-- sets reasoning effort to `medium`
+- sets reasoning effort to `high`
 - passes the assigned slice file path as a repo-relative path
 - tells the worker to read that exact slice file before acting
 - follows a bounded single-slice workflow with planning, implementation,

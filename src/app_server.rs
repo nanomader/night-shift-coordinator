@@ -16,7 +16,7 @@ use crate::terminal_result::{
 };
 
 pub const DEFAULT_MODEL: &str = "gpt-5.4";
-pub const DEFAULT_REASONING_EFFORT: &str = "medium";
+pub const DEFAULT_REASONING_EFFORT: &str = "high";
 
 #[derive(Debug, Clone)]
 pub struct RunSliceRequest {
