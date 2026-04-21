@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::slice::SliceStatus;
-use crate::terminal_result::ProgressPhase;
+use crate::terminal_result::{ProgressPhase, TerminalResultKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecoveryRecord {
@@ -16,6 +16,14 @@ pub struct RecoveryRecord {
     pub progress: Option<ProgressPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress_updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<TerminalResultKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_number: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merged_main_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 pub fn recovery_path(repo_root: &Path, run_scope: &str, label: &str) -> PathBuf {

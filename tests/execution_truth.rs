@@ -409,6 +409,182 @@ async fn progress_markers_update_debug_output_and_recovery() {
         value.get("status"),
         Some(&serde_json::json!("finished_prompt_owned"))
     );
+    assert_eq!(value.get("result"), None);
+    assert!(value.get("completed_at").is_some());
+}
+
+#[tokio::test]
+async fn finished_slice_recovery_persists_terminal_result_metadata() {
+    let repo = init_repo_with_origin();
+    let slice_dir = repo.path().join("slices");
+    fs::create_dir_all(&slice_dir).unwrap();
+    fs::write(slice_dir.join("01_first.md"), "slice").unwrap();
+    commit_and_push(repo.path(), ["slices/01_first.md"], "add first slice");
+
+    let merged_sha = git_stdout(repo.path(), ["rev-parse", "origin/main"]);
+    let expected_merged_sha = merged_sha.clone();
+    let client = Arc::new(ControlledClient::new());
+    let start_count = Arc::clone(&client.start_count);
+    let output = RecordingOutput::new();
+    let lines = Arc::clone(&output.lines);
+    let repo_root = repo.path().to_path_buf();
+    let run_slice_dir = slice_dir.clone();
+    let run_client = Arc::clone(&client);
+    let local = LocalSet::new();
+
+    local
+        .run_until(async move {
+            let handle = tokio::task::spawn_local(async move {
+                let mut output = RecordingOutput { lines };
+                run(
+                    SupervisorOptions {
+                        repo_root: repo_root.clone(),
+                        target_root: run_slice_dir,
+                        prompt_template: "prompt".to_string(),
+                        schedule: ScheduleMode::Flat,
+                    },
+                    run_client.as_ref(),
+                    &mut output,
+                )
+                .await
+            });
+
+            wait_for(|| start_count.load(Ordering::SeqCst) == 1).await;
+            client.send_progress(ProgressPhase::WaitingForMerge);
+            client.complete_one(TerminalRunOutcome::FinishedPromptOwned {
+                terminal_message: format!(
+                    "done\nNSC_RESULT: MERGED_SUCCESS\nNSC_MERGED_MAIN_SHA: {merged_sha}\nNSC_PR: 42\n"
+                ),
+            });
+
+            handle.await.unwrap().unwrap();
+        })
+        .await;
+
+    let recovery_root = repo.path().join(".nsc").join("recovery");
+    let run_dir = fs::read_dir(&recovery_root)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry.file_type().unwrap().is_dir().then_some(entry.path())
+        })
+        .unwrap();
+    let recovery_file = fs::read_dir(run_dir)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".json")
+                .then_some(entry.path())
+        })
+        .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(recovery_file).unwrap()).unwrap();
+
+    assert_eq!(
+        value.get("status"),
+        Some(&serde_json::json!("finished_prompt_owned"))
+    );
+    assert_eq!(
+        value.get("progress"),
+        Some(&serde_json::json!("waiting_for_merge"))
+    );
+    assert_eq!(
+        value.get("result"),
+        Some(&serde_json::json!("merged_success"))
+    );
+    assert_eq!(value.get("pr_number"), Some(&serde_json::json!(42)));
+    assert_eq!(
+        value.get("merged_main_sha"),
+        Some(&serde_json::json!(expected_merged_sha))
+    );
+    assert!(value.get("completed_at").is_some());
+}
+
+#[tokio::test]
+async fn malformed_finished_markers_become_attention_and_persist_terminal_recovery() {
+    let repo = init_repo_with_origin();
+    let slice_dir = repo.path().join("slices");
+    fs::create_dir_all(&slice_dir).unwrap();
+    fs::write(slice_dir.join("01_first.md"), "slice").unwrap();
+    commit_and_push(repo.path(), ["slices/01_first.md"], "add first slice");
+
+    let client = Arc::new(ControlledClient::new());
+    let start_count = Arc::clone(&client.start_count);
+    let output = RecordingOutput::new();
+    let lines = Arc::clone(&output.lines);
+    let repo_root = repo.path().to_path_buf();
+    let run_slice_dir = slice_dir.clone();
+    let run_client = Arc::clone(&client);
+    let local = LocalSet::new();
+
+    local
+        .run_until(async move {
+            let handle = tokio::task::spawn_local(async move {
+                let mut output = RecordingOutput { lines };
+                run(
+                    SupervisorOptions {
+                        repo_root: repo_root.clone(),
+                        target_root: run_slice_dir,
+                        prompt_template: "prompt".to_string(),
+                        schedule: ScheduleMode::Flat,
+                    },
+                    run_client.as_ref(),
+                    &mut output,
+                )
+                .await
+            });
+
+            wait_for(|| start_count.load(Ordering::SeqCst) == 1).await;
+            client.send_progress(ProgressPhase::WaitingForMerge);
+            client.complete_one(TerminalRunOutcome::FinishedPromptOwned {
+                terminal_message: "done\nNSC_RESULT: MERGED_SUCCESS\nNSC_PR: nope\n".to_string(),
+            });
+
+            handle.await.unwrap().unwrap();
+        })
+        .await;
+
+    let lines = output.lines.lock().unwrap().clone();
+    assert!(lines.iter().any(|line| line == "attention:01_first"));
+    assert!(!lines.iter().any(|line| line.starts_with("run-stopped:")));
+
+    let recovery_root = repo.path().join(".nsc").join("recovery");
+    let run_dir = fs::read_dir(&recovery_root)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry.file_type().unwrap().is_dir().then_some(entry.path())
+        })
+        .unwrap();
+    let recovery_file = fs::read_dir(run_dir)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".json")
+                .then_some(entry.path())
+        })
+        .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(recovery_file).unwrap()).unwrap();
+
+    assert_eq!(
+        value.get("status"),
+        Some(&serde_json::json!("attention_needed"))
+    );
+    assert_eq!(
+        value.get("progress"),
+        Some(&serde_json::json!("waiting_for_merge"))
+    );
+    assert!(value.get("completed_at").is_some());
+    assert_eq!(value.get("result"), None);
+    assert_eq!(value.get("pr_number"), None);
+    assert_eq!(value.get("merged_main_sha"), None);
 }
 
 #[tokio::test]
