@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::terminal_result::{DebugEvent, ProgressPhase};
+use crate::terminal_result::{DebugEvent, ProgressPhase, TerminalResultMarkers};
 
 const PROGRAM_HEADER: &str = concat!("Night Shift Coordinator v", env!("CARGO_PKG_VERSION"));
 
@@ -61,6 +61,7 @@ pub enum OutputEvent<'a> {
     SliceFinishedNormally {
         label: &'a str,
         terminal_message: &'a str,
+        terminal_markers: Option<&'a TerminalResultMarkers>,
     },
     SliceRunning {
         label: &'a str,
@@ -224,8 +225,19 @@ fn render_event_lines(
         OutputEvent::SliceFinishedNormally {
             label,
             terminal_message,
+            terminal_markers,
         } => {
             stdout_lines.push(format!("[{label}] finished normally"));
+            if let Some(markers) = terminal_markers {
+                let mut summary = format!("  result: {}", markers.result.as_display_str());
+                if let Some(pr_number) = markers.pr_number {
+                    summary.push_str(&format!(" pr={pr_number}"));
+                }
+                if let Some(merged_main_sha) = markers.merged_main_sha.as_deref() {
+                    summary.push_str(&format!(" merged_main_sha={merged_main_sha}"));
+                }
+                stdout_lines.push(summary);
+            }
             if !terminal_message.trim().is_empty() {
                 stdout_lines.push(format!("  final_message: {}", terminal_message.trim()));
             }
@@ -289,7 +301,9 @@ fn render_event_lines(
 mod tests {
     use std::path::Path;
 
-    use crate::terminal_result::{DebugEvent, ProgressPhase};
+    use crate::terminal_result::{
+        DebugEvent, ProgressPhase, TerminalResultKind, TerminalResultMarkers,
+    };
 
     use super::{OutputEvent, OutputMode, PROGRAM_HEADER, render_event_lines};
 
@@ -488,6 +502,34 @@ mod tests {
         assert_eq!(
             finished.0,
             vec!["Wave root 1/3 finished: wave03_ruby (MERGED_SUCCESS)".to_string()]
+        );
+    }
+
+    #[test]
+    fn finished_slice_renders_normalized_result_summary_when_markers_exist() {
+        let rendered = render_event_lines(
+            OutputMode::Normal,
+            true,
+            OutputEvent::SliceFinishedNormally {
+                label: "01_slice",
+                terminal_message: "done\nNSC_RESULT: MERGED_SUCCESS",
+                terminal_markers: Some(&TerminalResultMarkers {
+                    result: TerminalResultKind::MergedSuccess,
+                    merged_main_sha: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
+                    pr_number: Some(42),
+                }),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            rendered.0,
+            vec![
+                "[01_slice] finished normally".to_string(),
+                "  result: merged_success pr=42 merged_main_sha=0123456789abcdef0123456789abcdef01234567"
+                    .to_string(),
+                "  final_message: done\nNSC_RESULT: MERGED_SUCCESS".to_string(),
+            ]
         );
     }
 

@@ -44,7 +44,8 @@ impl DebugEvent {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TerminalResultKind {
     MergedSuccess,
     ManualFollowup,
@@ -59,6 +60,15 @@ impl TerminalResultKind {
             Self::ManualFollowup => "MANUAL_FOLLOWUP",
             Self::Blocked => "BLOCKED",
             Self::Stopped => "STOPPED",
+        }
+    }
+
+    pub fn as_display_str(self) -> &'static str {
+        match self {
+            Self::MergedSuccess => "merged_success",
+            Self::ManualFollowup => "manual_followup",
+            Self::Blocked => "blocked",
+            Self::Stopped => "stopped",
         }
     }
 }

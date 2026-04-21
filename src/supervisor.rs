@@ -14,7 +14,9 @@ use crate::error::{NscError, Result};
 use crate::output::{OutputEvent, OutputSink};
 use crate::recovery::{RecoveryRecord, write_record};
 use crate::slice::{MAX_PARALLEL_SLICES, SliceCandidate, SliceStatus};
-use crate::terminal_result::{ProgressPhase, TerminalResultKind, parse_terminal_result_markers};
+use crate::terminal_result::{
+    ProgressPhase, TerminalResultKind, TerminalResultMarkers, parse_terminal_result_markers,
+};
 use crate::wave_dirs::{WaveDir, discover_wave_dirs};
 use crate::wave_roots::discover_wave_roots;
 use crate::worktree::{
@@ -54,6 +56,8 @@ struct RecoveryState {
     status: SliceStatus,
     progress: Option<ProgressPhase>,
     progress_updated_at: Option<String>,
+    terminal_markers: Option<TerminalResultMarkers>,
+    completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -428,6 +432,8 @@ async fn launch_available(
                 status: SliceStatus::Starting,
                 progress: None,
                 progress_updated_at: None,
+                terminal_markers: None,
+                completed_at: None,
             },
         )?;
 
@@ -456,6 +462,8 @@ async fn launch_available(
                         status: SliceStatus::Running,
                         progress: None,
                         progress_updated_at: None,
+                        terminal_markers: None,
+                        completed_at: None,
                     },
                 )?;
                 output.emit(OutputEvent::SliceRunning {
@@ -487,6 +495,8 @@ async fn launch_available(
                         status: SliceStatus::AttentionNeeded,
                         progress: None,
                         progress_updated_at: None,
+                        terminal_markers: None,
+                        completed_at: None,
                     },
                 )?;
                 output.emit(OutputEvent::SliceNeedsAttention {
@@ -577,6 +587,8 @@ async fn wait_for_one(
                                 status: SliceStatus::Running,
                                 progress: slice.latest_progress,
                                 progress_updated_at: slice.latest_progress_updated_at.clone(),
+                                terminal_markers: None,
+                                completed_at: None,
                             },
                         )?;
                         output.emit(OutputEvent::SliceProgress {
@@ -597,6 +609,8 @@ async fn wait_for_one(
                                 status: SliceStatus::Running,
                                 progress: slice.latest_progress,
                                 progress_updated_at: slice.latest_progress_updated_at.clone(),
+                                terminal_markers: None,
+                                completed_at: None,
                             },
                         )?;
                         output.emit(OutputEvent::SliceWorkflowEvent {
@@ -627,6 +641,7 @@ fn handle_terminal_result(
 ) -> Result<CompletedSlice> {
     match result {
         Ok(TerminalRunOutcome::FinishedPromptOwned { terminal_message }) => {
+            let terminal_markers = parse_terminal_result_markers(&terminal_message)?;
             write_recovery(
                 repo_root,
                 run_scope,
@@ -638,11 +653,14 @@ fn handle_terminal_result(
                     status: SliceStatus::FinishedPromptOwned,
                     progress: finished.latest_progress,
                     progress_updated_at: finished.latest_progress_updated_at,
+                    terminal_markers: terminal_markers.clone(),
+                    completed_at: Some(completed_at_now()?),
                 },
             )?;
             output.emit(OutputEvent::SliceFinishedNormally {
                 label: &finished.output_label,
                 terminal_message: &terminal_message,
+                terminal_markers: terminal_markers.as_ref(),
             });
             Ok(CompletedSlice {
                 output_label: finished.output_label,
@@ -663,6 +681,8 @@ fn handle_terminal_result(
                     status: SliceStatus::AttentionNeeded,
                     progress: finished.latest_progress,
                     progress_updated_at: finished.latest_progress_updated_at,
+                    terminal_markers: None,
+                    completed_at: None,
                 },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
@@ -688,6 +708,8 @@ fn handle_terminal_result(
                     status: SliceStatus::AttentionNeeded,
                     progress: finished.latest_progress,
                     progress_updated_at: finished.latest_progress_updated_at,
+                    terminal_markers: None,
+                    completed_at: None,
                 },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
@@ -790,6 +812,18 @@ fn write_recovery(
     worktree_path: &Path,
     state: RecoveryState,
 ) -> Result<()> {
+    let result = state
+        .terminal_markers
+        .as_ref()
+        .map(|markers| markers.result);
+    let pr_number = state
+        .terminal_markers
+        .as_ref()
+        .and_then(|markers| markers.pr_number);
+    let merged_main_sha = state
+        .terminal_markers
+        .as_ref()
+        .and_then(|markers| markers.merged_main_sha.clone());
     write_record(
         repo_root,
         run_scope,
@@ -801,6 +835,10 @@ fn write_recovery(
             status: state.status,
             progress: state.progress,
             progress_updated_at: state.progress_updated_at,
+            result,
+            pr_number,
+            merged_main_sha,
+            completed_at: state.completed_at,
         },
     )?;
     Ok(())
@@ -810,4 +848,10 @@ fn progress_updated_at_now() -> Result<String> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .map_err(|err| NscError::Protocol(format!("failed to format progress timestamp: {err}")))
+}
+
+fn completed_at_now() -> Result<String> {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|err| NscError::Protocol(format!("failed to format completion timestamp: {err}")))
 }

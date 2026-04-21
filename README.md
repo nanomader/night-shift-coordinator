@@ -300,6 +300,8 @@ Found 5 slices in folder
 Starting 3 slices: 01_auth_cleanup, 02_docs_pass, 03_runner_fix
 
 [03_runner_fix] finished normally
+  result: merged_success pr=42 merged_main_sha=0123456789abcdef0123456789abcdef01234567
+  final_message: done
 [02_docs_pass] needs attention
   reason: codex app-server run timed out after 28800 seconds
   thread_id: thread-123
@@ -359,10 +361,18 @@ Recovery JSON stays intentionally small. It stores:
 - `worktree_path`
 - `thread_id`
 - `status`
-- optional `progress`
+- optional `progress` as the last observed informational progress marker
 - optional `progress_updated_at`
+- optional `result`
+- optional `pr_number`
+- optional `merged_main_sha`
+- optional `completed_at`
 
 This is for manual recovery only. It is not a restart system.
+
+For finished slices, terminal truth is the finished status plus any parsed
+terminal-result metadata above. `progress` remains informational only and may
+still show the last observed phase such as `waiting_for_merge`.
 
 When a slice needs attention, NSC surfaces the slice label, reason, worktree
 path, and thread id when available. That is enough context to inspect the

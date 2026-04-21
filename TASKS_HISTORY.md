@@ -17,3 +17,4 @@
 - 2026-04-17: Removed the explicit Codex fast service tier override so NSC no longer forces `service_tier="fast"` at app-server launch.
 - 2026-04-18: Removed the built-in prompt's manual `@codex review` request and same-head retry path so NSC now relies on automatic Codex review triggers on PR creation and follow-up pushes while keeping the clean head-scoped merge gate.
 - 2026-04-21: Raised the explicit Codex App Server default reasoning effort from `medium` to `high`.
+- 2026-04-22: Clarified finished-slice recovery and output truth by persisting terminal-result metadata in recovery and rendering a normalized completion summary, following `_done_PLAN_nsc_terminal_recovery_truth_20260422.md`.
