@@ -597,7 +597,6 @@ async fn wait_for_one(
                         });
                     }
                     RunUpdate::Event(event) => {
-                        slice.latest_progress_updated_at = Some(progress_updated_at_now()?);
                         write_recovery(
                             repo_root,
                             run_scope,
@@ -713,7 +712,7 @@ fn handle_terminal_result(
                     progress: finished.latest_progress,
                     progress_updated_at: finished.latest_progress_updated_at,
                     terminal_markers: None,
-                    completed_at: None,
+                    completed_at: Some(completed_at_now()?),
                 },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {
@@ -740,7 +739,7 @@ fn handle_terminal_result(
                     progress: finished.latest_progress,
                     progress_updated_at: finished.latest_progress_updated_at,
                     terminal_markers: None,
-                    completed_at: None,
+                    completed_at: Some(completed_at_now()?),
                 },
             )?;
             output.emit(OutputEvent::SliceNeedsAttention {

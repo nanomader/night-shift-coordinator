@@ -130,6 +130,10 @@ fn app_server_launch_args() -> [&'static str; 4] {
 }
 
 const MAX_RUN_DURATION: Duration = Duration::from_secs(8 * 60 * 60);
+#[cfg(not(test))]
+const MAX_PROTOCOL_SILENCE_DURATION: Duration = Duration::from_secs(15 * 60);
+#[cfg(test)]
+const MAX_PROTOCOL_SILENCE_DURATION: Duration = Duration::from_millis(100);
 
 struct Session {
     child: Child,
@@ -268,7 +272,19 @@ impl Session {
     ) -> Result<TerminalRunOutcome> {
         let mut notifications = Vec::new();
         loop {
-            let notification = self.wait_for_notification().await?;
+            let Some(notification) = apply_protocol_silence_timeout(
+                MAX_PROTOCOL_SILENCE_DURATION,
+                self.wait_for_notification(),
+            )
+            .await?
+            else {
+                return Ok(TerminalRunOutcome::AttentionNeeded {
+                    reason: format!(
+                        "codex app-server produced no protocol traffic for {}",
+                        format_duration_for_operator(MAX_PROTOCOL_SILENCE_DURATION)
+                    ),
+                });
+            };
             let method = notification
                 .get("method")
                 .and_then(Value::as_str)
@@ -426,6 +442,24 @@ where
                 duration.as_secs()
             ),
         }),
+    }
+}
+
+async fn apply_protocol_silence_timeout<F>(duration: Duration, future: F) -> Result<Option<Value>>
+where
+    F: Future<Output = Result<Value>>,
+{
+    match tokio::time::timeout(duration, future).await {
+        Ok(result) => result.map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
+fn format_duration_for_operator(duration: Duration) -> String {
+    if duration.as_secs() > 0 {
+        format!("{} seconds", duration.as_secs())
+    } else {
+        format!("{} milliseconds", duration.as_millis())
     }
 }
 
@@ -637,8 +671,9 @@ mod tests {
 
     use super::{
         DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, RunSliceRequest, RunUpdate, TerminalRunOutcome,
-        app_server_launch_args, apply_run_timeout, build_prompt_text, canonical_terminal_message,
-        extract_run_updates, thread_start_params, turn_start_params,
+        app_server_launch_args, apply_protocol_silence_timeout, apply_run_timeout,
+        build_prompt_text, canonical_terminal_message, extract_run_updates,
+        format_duration_for_operator, thread_start_params, turn_start_params,
     };
     use crate::terminal_result::{DebugEvent, ProgressPhase};
 
@@ -802,5 +837,50 @@ mod tests {
             }
             other => panic!("unexpected outcome: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn apply_protocol_silence_timeout_returns_none_for_silent_wait() {
+        let outcome = apply_protocol_silence_timeout(Duration::from_millis(10), async {
+            sleep(Duration::from_millis(50)).await;
+            Ok(json!({
+                "method": "turn/completed",
+            }))
+        })
+        .await
+        .unwrap();
+
+        assert!(outcome.is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_protocol_silence_timeout_preserves_payload_when_available() {
+        let outcome = apply_protocol_silence_timeout(Duration::from_millis(50), async {
+            sleep(Duration::from_millis(10)).await;
+            Ok(json!({
+                "method": "item/completed",
+            }))
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            outcome,
+            Some(json!({
+                "method": "item/completed",
+            }))
+        );
+    }
+
+    #[test]
+    fn format_duration_for_operator_handles_subsecond_values() {
+        assert_eq!(
+            format_duration_for_operator(Duration::from_millis(100)),
+            "100 milliseconds"
+        );
+        assert_eq!(
+            format_duration_for_operator(Duration::from_secs(15)),
+            "15 seconds"
+        );
     }
 }

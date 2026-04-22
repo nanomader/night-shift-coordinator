@@ -19,3 +19,4 @@
 - 2026-04-21: Raised the explicit Codex App Server default reasoning effort from `medium` to `high`.
 - 2026-04-22: Clarified finished-slice recovery and output truth by persisting terminal-result metadata in recovery and rendering a normalized completion summary, following `_done_PLAN_nsc_terminal_recovery_truth_20260422.md`.
 - 2026-04-22: Hardened malformed finished-turn terminal-marker handling so NSC records attention-needed recovery breadcrumbs instead of leaving stale running state, following `_done_PLAN_nsc_invalid_terminal_marker_attention_20260422.md`.
+- 2026-04-22: Added app-server silence detection, tightened recovery timestamp truth, and made terminal attention outcomes persist `completed_at`, following `_done_PLAN_nsc_running_slice_staleness_boundary_20260422.md`.
