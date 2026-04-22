@@ -414,6 +414,85 @@ async fn progress_markers_update_debug_output_and_recovery() {
 }
 
 #[tokio::test]
+async fn workflow_events_do_not_refresh_progress_updated_at() {
+    let repo = init_repo_with_origin();
+    let slice_dir = repo.path().join("slices");
+    fs::create_dir_all(&slice_dir).unwrap();
+    fs::write(slice_dir.join("01_first.md"), "slice").unwrap();
+    commit_and_push(repo.path(), ["slices/01_first.md"], "add first slice");
+
+    let client = Arc::new(ControlledClient::new());
+    let start_count = Arc::clone(&client.start_count);
+    let output = RecordingOutput::new();
+    let lines = Arc::clone(&output.lines);
+    let repo_root = repo.path().to_path_buf();
+    let run_slice_dir = slice_dir.clone();
+    let run_client = Arc::clone(&client);
+    let local = LocalSet::new();
+
+    local
+        .run_until(async move {
+            let handle = tokio::task::spawn_local(async move {
+                let mut output = RecordingOutput { lines };
+                run(
+                    SupervisorOptions {
+                        repo_root: repo_root.clone(),
+                        target_root: run_slice_dir,
+                        prompt_template: "prompt".to_string(),
+                        schedule: ScheduleMode::Flat,
+                    },
+                    run_client.as_ref(),
+                    &mut output,
+                )
+                .await
+            });
+
+            wait_for(|| start_count.load(Ordering::SeqCst) == 1).await;
+            client.send_progress(ProgressPhase::Planning);
+            wait_for(|| {
+                read_only_recovery_json(repo.path())
+                    .get("progress")
+                    .is_some()
+            })
+            .await;
+            let recovery_after_progress = read_only_recovery_json(repo.path());
+            let progress_updated_at = recovery_after_progress
+                .get("progress_updated_at")
+                .cloned()
+                .unwrap();
+
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            client.send_event(DebugEvent::ReviewPollingStarted);
+            wait_for(|| {
+                output
+                    .lines
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|line| line == "event:01_first:review polling started")
+            })
+            .await;
+
+            let recovery_after_event = read_only_recovery_json(repo.path());
+            assert_eq!(
+                recovery_after_event.get("progress"),
+                Some(&serde_json::json!("planning"))
+            );
+            assert_eq!(
+                recovery_after_event.get("progress_updated_at"),
+                Some(&progress_updated_at)
+            );
+
+            client.complete_one(TerminalRunOutcome::FinishedPromptOwned {
+                terminal_message: "done".to_string(),
+            });
+
+            handle.await.unwrap().unwrap();
+        })
+        .await;
+}
+
+#[tokio::test]
 async fn finished_slice_recovery_persists_terminal_result_metadata() {
     let repo = init_repo_with_origin();
     let slice_dir = repo.path().join("slices");
@@ -500,6 +579,59 @@ async fn finished_slice_recovery_persists_terminal_result_metadata() {
         value.get("merged_main_sha"),
         Some(&serde_json::json!(expected_merged_sha))
     );
+    assert!(value.get("completed_at").is_some());
+}
+
+#[tokio::test]
+async fn attention_needed_without_progress_still_records_completed_at() {
+    let repo = init_repo_with_origin();
+    let slice_dir = repo.path().join("slices");
+    fs::create_dir_all(&slice_dir).unwrap();
+    fs::write(slice_dir.join("01_first.md"), "slice").unwrap();
+    commit_and_push(repo.path(), ["slices/01_first.md"], "add first slice");
+
+    let client = Arc::new(ControlledClient::new());
+    let start_count = Arc::clone(&client.start_count);
+    let output = RecordingOutput::new();
+    let lines = Arc::clone(&output.lines);
+    let repo_root = repo.path().to_path_buf();
+    let run_slice_dir = slice_dir.clone();
+    let run_client = Arc::clone(&client);
+    let local = LocalSet::new();
+
+    local
+        .run_until(async move {
+            let handle = tokio::task::spawn_local(async move {
+                let mut output = RecordingOutput { lines };
+                run(
+                    SupervisorOptions {
+                        repo_root: repo_root.clone(),
+                        target_root: run_slice_dir,
+                        prompt_template: "prompt".to_string(),
+                        schedule: ScheduleMode::Flat,
+                    },
+                    run_client.as_ref(),
+                    &mut output,
+                )
+                .await
+            });
+
+            wait_for(|| start_count.load(Ordering::SeqCst) == 1).await;
+            client.complete_one(TerminalRunOutcome::AttentionNeeded {
+                reason: "codex app-server produced no protocol traffic for 100 milliseconds"
+                    .to_string(),
+            });
+
+            handle.await.unwrap().unwrap();
+        })
+        .await;
+
+    let value = read_only_recovery_json(repo.path());
+    assert_eq!(
+        value.get("status"),
+        Some(&serde_json::json!("attention_needed"))
+    );
+    assert_eq!(value.get("progress"), None);
     assert!(value.get("completed_at").is_some());
 }
 
@@ -797,6 +929,29 @@ async fn wait_for(mut predicate: impl FnMut() -> bool) {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     panic!("condition was not met in time");
+}
+
+fn read_only_recovery_json(repo_root: &Path) -> serde_json::Value {
+    let recovery_root = repo_root.join(".nsc").join("recovery");
+    let run_dir = fs::read_dir(&recovery_root)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry.file_type().unwrap().is_dir().then_some(entry.path())
+        })
+        .unwrap();
+    let recovery_file = fs::read_dir(run_dir)
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".json")
+                .then_some(entry.path())
+        })
+        .unwrap();
+    serde_json::from_str(&fs::read_to_string(recovery_file).unwrap()).unwrap()
 }
 
 fn init_repo_with_origin() -> TempDir {

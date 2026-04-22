@@ -331,7 +331,8 @@ Operator-facing meanings:
 - `finished normally`: the App Server turn completed and NSC captured the final
   prompt-owned terminal message
 - `needs attention`: launch, runtime, protocol, or timeout handling did not
-  complete normally
+  complete normally, including long app-server protocol silence after a slice
+  already started
 - `Starting wave-dir` / `Wave-dir finished` / `Wave-dir stopped`: ordered
   `wave-dirs` progress
 - `Starting wave root` / `Wave root finished` / `Wave root stopped`: ordered
@@ -362,11 +363,12 @@ Recovery JSON stays intentionally small. It stores:
 - `thread_id`
 - `status`
 - optional `progress` as the last observed informational progress marker
-- optional `progress_updated_at`
+- optional `progress_updated_at` for the last observed progress marker change
 - optional `result`
 - optional `pr_number`
 - optional `merged_main_sha`
-- optional `completed_at`
+- optional `completed_at` for terminal slice outcomes, including terminal
+  `needs attention` states
 
 This is for manual recovery only. It is not a restart system.
 
@@ -375,7 +377,9 @@ terminal-result metadata above. `progress` remains informational only and may
 still show the last observed phase such as `waiting_for_merge`.
 Malformed terminal markers from an otherwise finished prompt-owned turn are
 reported as `needs attention` and persist terminal recovery breadcrumbs rather
-than leaving stale running state behind.
+than leaving stale running state behind. The same applies when a started slice
+goes silent at the app-server protocol layer and NSC converts that stall into a
+terminal `needs attention` outcome.
 
 When a slice needs attention, NSC surfaces the slice label, reason, worktree
 path, and thread id when available. That is enough context to inspect the
