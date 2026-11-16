@@ -1,116 +1,40 @@
-# Night Shift Coordinator
+# Run prepared Codex tasks overnight and see which ones need your attention.
 
-Night Shift Coordinator (`NSC`) is a local Rust CLI for supervising prepared
-Night Shift slice execution.
+![An owl keeps watch over three glowing computers under a crescent moon.](assets/banner.jpg)
 
-It is built for one narrow job: run already-prepared Codex work unattended,
-from a deterministic fetched `origin/main` base, with one worktree per slice
-and operator-visible recovery breadcrumbs when something stops.
-
-**NSC executes prepared Night Shift work. It does not prepare, repair, or
-reinterpret that work.**
-
-## When To Use NSC
-
-Use NSC when:
-
-- you already prepared slice markdown files
-- you want deterministic execution from fetched `origin/main`
-- you want one worktree per running slice
-- you want ordered execution only when you ask for it explicitly
-- you want clear operator output and repo-local recovery state under `.nsc/`
-
-Do not use NSC when:
-
-- you need slice preparation
-- you need dependency inference or DAG scheduling
-- you need a general workflow engine
-- you want hidden repair, retry, or merge-management behavior
-- your prepared inputs do not already exist on the repository state NSC will
-  execute from
-
-## Execution Modes
-
-| Mode | Command | Meaning |
-| --- | --- | --- |
-| Flat batch | `nsc run <slice-folder>` | Run non-empty `*.md` slices from one folder, up to 3 at a time. |
-| Ordered wave-dirs | `nsc run <wave-root> --schedule wave-dirs` | Run one child `batchNN_name` directory at a time. |
-| Ordered wave-roots | `nsc run <program-root> --schedule wave-roots` | Run one child `waveNN_name` directory at a time, reusing `wave-dirs` rules inside each root. |
-
-Flat mode assumes the slices in one folder are already parallel-safe.
-Ordered execution is explicit only.
-
-## Requirements
-
-NSC v1 officially targets:
-
-- macOS
-- Linux
-
-You also need:
-
-- `git`
-- `codex` with App Server support on your `PATH`
-- GitHub access for the built-in prompt workflow, including authenticated PR
-  and review capability in the target repository environment
-- a target repository that you can run NSC from
+Night Shift Coordinator (`nsc`) runs a set of tasks you have already written. Each task gets its own Git worktree. The included worker prompt guides Codex through implementation, validation, pull request review and merge when your repository allows it.
 
 ## Install
 
-Install from this repository:
+On macOS or Linux, install from source with Rust and Cargo:
 
-```bash
-cargo install --path . --locked --force
-```
-
-Verify:
-
-```bash
-which nsc
+```sh
+git clone https://github.com/nanomader/night-shift-coordinator.git
+cd night-shift-coordinator
+cargo install --path . --locked
 nsc --help
 ```
 
-You can also build without installing:
+You also need Git, Codex CLI with App Server support, and GitHub access for the pull request, review and merge steps in the [worker prompt](NSC_PROMPT.md).
 
-```bash
-cargo build --release
-./target/release/nsc --help
-```
+## Run your first batch
 
-Homebrew tap packaging is planned, but it is not live from this repository yet.
-Until the tap exists, install from source with `cargo install --path . --locked
---force`.
+1. In the repository you want to work on, write one task per Markdown file in a folder such as `slices/`. Describe the change, its boundaries and how to verify it.
+2. Get those files onto `origin/main`. The coordinator fetches that branch and checks that every task exists at the commit it will use.
+3. From the target repository root, run:
 
-## Quick Start
-
-### Flat Batch
-
-Use this when one folder already contains only parallel-safe slices:
-
-```text
-slices/
-  01_readme_cleanup.md
-  02_cli_examples.md
-  03_release_notes.md
-```
-
-```bash
+```sh
 nsc run slices/
 ```
 
-What NSC does:
+Use a flat batch for independent tasks. Up to three can run at once, so choose tasks that can safely land together. For work that must land in order, group tasks into numbered batches and use `--schedule wave-dirs`. The next batch starts only after every task in the previous batch reports a merge that the coordinator can verify on `origin/main`.
 
-1. resolves the target repository root
-2. force-fetches `origin/main`
-3. validates that the discovered slice files exist on that execution base
-4. freezes the slice set for the run
-5. starts up to 3 slices in parallel
+## When a task stops
 
-Use debug output when you want lifecycle, phase, and workflow-event lines:
+Look for `needs attention` in the output. The coordinator records the worktree and Codex thread ID when available under `.nsc/recovery/`. Inspect the worktree, then use `codex resume <thread_id>` to continue manually. For more detail during a run, use `nsc debug slices/`.
 
-```bash
-nsc debug slices/
-```
+<details>
+<summary>Scheduling examples, worker settings and recovery reference</summary>
 
 ### Ordered Wave-Dirs
 
@@ -439,23 +363,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
 
-## Packaging
+</details>
 
-This repository is being prepared for a separate Homebrew tap.
-
-- target install after the tap exists: `brew install nanomader/tap/night-shift-coordinator`
-- plain `brew install night-shift-coordinator` is not a current promise
-- Homebrew will install the `nsc` binary only
-- runtime requirements such as `git`, `codex`, and GitHub review workflow
-  access remain explicit operator requirements
-
-## Repo Docs
-
-- [README.md](README.md): product contract and operator-facing behavior
-- [AGENTS.md](AGENTS.md): contributor decision policy for everyday NSC work
-- [CONTRIBUTING.md](CONTRIBUTING.md): contribution workflow and repo expectations
-- [NSC_PROMPT.md](NSC_PROMPT.md): built-in worker prompt contract
-
-## License
-
-Apache License 2.0. See [LICENSE](LICENSE).
+[Contributing](CONTRIBUTING.md) · [Apache 2.0 license](LICENSE)
